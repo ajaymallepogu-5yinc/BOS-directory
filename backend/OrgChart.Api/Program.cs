@@ -96,6 +96,14 @@ using (var scope = app.Services.CreateScope())
 
         if (!tableExists)
         {
+            try
+            {
+                db.Database.ExecuteSqlRaw(@"
+                    DROP TABLE IF EXISTS ""Employees"", ""Departments"", ""DataSourceConfigs"", ""JiraProjects"", ""JiraSprints"", ""JiraIssues"" CASCADE;
+                ");
+            }
+            catch { }
+
             var sql = db.Database.GenerateCreateScript();
             db.Database.ExecuteSqlRaw(sql);
         }
