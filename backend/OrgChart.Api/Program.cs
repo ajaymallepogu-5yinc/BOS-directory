@@ -73,7 +73,37 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.EnsureCreated();
+    
+    if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+    {
+        // For PostgreSQL on Supabase, the database already exists, so EnsureCreated() skips table creation.
+        // We check if the Employees table exists, and if not, we generate and execute the creation script.
+        bool tableExists = false;
+        try
+        {
+            var conn = db.Database.GetDbConnection();
+            using (var cmd = conn.CreateCommand())
+            {
+                if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+                cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'Employees')";
+                tableExists = Convert.ToBoolean(cmd.ExecuteScalar());
+            }
+        }
+        catch
+        {
+            tableExists = false;
+        }
+
+        if (!tableExists)
+        {
+            var sql = db.Database.GenerateCreateScript();
+            db.Database.ExecuteSqlRaw(sql);
+        }
+    }
+    else
+    {
+        db.Database.EnsureCreated();
+    }
 
     // Ensure system settings schema and defaults are configured
     SeedData.EnsureDataSourceConfigTableExists(db);
