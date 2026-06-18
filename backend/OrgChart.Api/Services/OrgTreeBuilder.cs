@@ -21,12 +21,14 @@ public class OrgTreeBuilder : IOrgTreeBuilder
 {
     public List<EmployeeTreeNodeDto> BuildCompanyTree(List<Employee> allEmployees)
     {
+        BreakCycles(allEmployees);
         var roots = allEmployees.Where(e => e.ManagerId is null).ToList();
         return roots.Select(r => MapWithChildren(r, allEmployees)).ToList();
     }
 
     public List<EmployeeTreeNodeDto> BuildDepartmentTree(List<Employee> allEmployees, int departmentId)
     {
+        BreakCycles(allEmployees);
         var inDepartment = allEmployees.Where(e => e.DepartmentId == departmentId).ToList();
         var idsInDepartment = inDepartment.Select(e => e.Id).ToHashSet();
 
@@ -35,6 +37,50 @@ public class OrgTreeBuilder : IOrgTreeBuilder
         var roots = inDepartment.Where(e => e.ManagerId is null || !idsInDepartment.Contains(e.ManagerId.Value)).ToList();
 
         return roots.Select(r => MapWithChildren(r, inDepartment)).ToList();
+    }
+
+    private static void BreakCycles(List<Employee> employees)
+    {
+        var visited = new HashSet<int>();
+        var currentPath = new List<int>();
+
+        foreach (var emp in employees)
+        {
+            if (visited.Contains(emp.Id))
+                continue;
+
+            var current = emp;
+            currentPath.Clear();
+            var pathSet = new HashSet<int>();
+
+            while (current != null)
+            {
+                if (visited.Contains(current.Id))
+                {
+                    break;
+                }
+
+                if (pathSet.Contains(current.Id))
+                {
+                    // Found a reporting loop! Break it in memory by setting ManagerId to null.
+                    current.ManagerId = null;
+                    current.Manager = null;
+                    break;
+                }
+
+                pathSet.Add(current.Id);
+                currentPath.Add(current.Id);
+
+                current = current.ManagerId.HasValue
+                    ? employees.FirstOrDefault(e => e.Id == current.ManagerId.Value)
+                    : null;
+            }
+
+            foreach (var id in currentPath)
+            {
+                visited.Add(id);
+            }
+        }
     }
 
     private static EmployeeTreeNodeDto MapWithChildren(Employee employee, List<Employee> pool)

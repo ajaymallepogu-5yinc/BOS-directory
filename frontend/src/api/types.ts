@@ -186,3 +186,20 @@ export interface UpdateJiraIssueRequest {
   sprintId?: number | null;
 }
 
+export interface BulkImportEmployee {
+  id: string;
+  fullName: string;
+  title: string;
+  company: string;
+  avatarUrl?: string | null;
+  managerId?: string | null;
+  departmentName: string;
+  departmentColor?: string | null;
+}
+
+export interface BulkImportResult {
+  success: boolean;
+  message: string;
+  importedCount: number;
+}
+

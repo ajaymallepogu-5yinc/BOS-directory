@@ -5,6 +5,8 @@ import type {
   EmployeeFormValues,
   ManagerOption,
   OrgTreeNode,
+  BulkImportEmployee,
+  BulkImportResult,
 } from "./types";
 
 export async function fetchCompanyTree(): Promise<OrgTreeNode[]> {
@@ -43,4 +45,9 @@ export async function updateEmployee(id: number, values: EmployeeFormValues): Pr
 
 export async function deleteEmployee(id: number): Promise<void> {
   await apiClient.delete(`/employees/${id}`);
+}
+
+export async function importBulkEmployees(employees: BulkImportEmployee[]): Promise<BulkImportResult> {
+  const { data } = await apiClient.post<BulkImportResult>("/employees/import-bulk", { employees });
+  return data;
 }

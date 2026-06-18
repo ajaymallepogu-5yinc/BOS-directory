@@ -1,0 +1,5 @@
+id,displayName,jobTitle,company,avatarUrl,reportsTo.id,department,departmentColor
+1,Aravind Krishnan,Chief Executive Officer,5Y Business Solutions,,,"LEADERSHIP",#4338CA
+2,Vikhyath Rai,Manager - Operations,5Y Business Solutions,,1,"LEADERSHIP",#4338CA
+3,Sudhakar Somyajula,Technical Director,5Y Business Solutions,,2,"PROJECT",#B45309
+4,Ajay Mallepogu,Trainee Developer,5Y Business Solutions,,3,"PROJECT",#B45309
