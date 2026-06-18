@@ -2,11 +2,12 @@ FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
 # Copy project file and restore NuGet packages
-COPY ["OrgChart.Api.csproj", "."]
-RUN dotnet restore "OrgChart.Api.csproj"
+COPY ["backend/OrgChart.Api/OrgChart.Api.csproj", "backend/OrgChart.Api/"]
+RUN dotnet restore "backend/OrgChart.Api/OrgChart.Api.csproj"
 
 # Copy everything else and build the release
 COPY . .
+WORKDIR "/src/backend/OrgChart.Api"
 RUN dotnet build "OrgChart.Api.csproj" -c Release -o /app/build
 
 # Publish the release
