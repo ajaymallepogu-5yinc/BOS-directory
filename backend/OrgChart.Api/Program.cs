@@ -24,12 +24,21 @@ if (!string.IsNullOrEmpty(envOrigins))
     allowedOriginsList.AddRange(envOrigins.Split(',', StringSplitOptions.RemoveEmptyEntries));
 }
 
+if (builder.Environment.IsDevelopment())
+{
+    allowedOriginsList.Add("http://localhost:5173");
+    allowedOriginsList.Add("http://localhost:5174");
+    allowedOriginsList.Add("http://localhost:5175");
+}
+
 if (allowedOriginsList.Count == 0)
 {
     allowedOriginsList.Add("http://localhost:5173");
     allowedOriginsList.Add("http://localhost:5174");
     allowedOriginsList.Add("http://localhost:5175");
 }
+
+allowedOriginsList = allowedOriginsList.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 builder.Services.AddCors(options =>
 {
