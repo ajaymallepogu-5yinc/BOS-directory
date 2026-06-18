@@ -1,0 +1,42 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  @apply bg-ink-50 text-ink-800 font-body antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-lg border border-ink-200 px-3 py-2 text-sm outline-none focus:border-brand-light focus:ring-1 focus:ring-brand-light;
+  }
+  .btn-primary {
+    @apply rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-light disabled:opacity-60;
+  }
+  .btn-secondary {
+    @apply rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600 transition-colors hover:bg-ink-100;
+  }
+}
+
+/* Custom scrollbar for the chart canvas - subtle, not the browser default */
+.chart-canvas::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+.chart-canvas::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 8px;
+}
+.chart-canvas::-webkit-scrollbar-track {
+  background: transparent;
+}
