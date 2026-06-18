@@ -11,11 +11,41 @@ builder.Services.AddSwaggerGen();
 
 builder.Services.AddHttpClient();
 
-var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? new[] { "http://localhost:5173" };
+var allowedOriginsList = new List<string>();
+var allowedOriginsSection = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>();
+if (allowedOriginsSection != null)
+{
+    allowedOriginsList.AddRange(allowedOriginsSection);
+}
+
+var envOrigins = Environment.GetEnvironmentVariable("ALLOWED_ORIGINS");
+if (!string.IsNullOrEmpty(envOrigins))
+{
+    allowedOriginsList.AddRange(envOrigins.Split(',', StringSplitOptions.RemoveEmptyEntries));
+}
+
+if (allowedOriginsList.Count == 0)
+{
+    allowedOriginsList.Add("http://localhost:5173");
+    allowedOriginsList.Add("http://localhost:5174");
+    allowedOriginsList.Add("http://localhost:5175");
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("FrontendPolicy", policy =>
-        policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod());
+    {
+        if (allowedOriginsList.Contains("*"))
+        {
+            policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
+        }
+        else
+        {
+            policy.WithOrigins(allowedOriginsList.ToArray())
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        }
+    });
 });
 
 var postgresConnection = builder.Configuration.GetConnectionString("PostgresConnection") 
