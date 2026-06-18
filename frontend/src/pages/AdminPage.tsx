@@ -6,10 +6,11 @@ import {
   fetchEmployees,
   fetchManagerOptions,
   updateEmployee,
+  importBulkEmployees,
 } from "../api/employeeApi";
 import { fetchSettings, saveSettings, testSettings, importSettings } from "../api/settingsApi";
 import { testJiraConnection, importJiraData } from "../api/jiraApi";
-import type { Department, Employee, EmployeeFormValues, ManagerOption, TestConnectionResult, TestJiraConnectionResult } from "../api/types";
+import type { Department, Employee, EmployeeFormValues, ManagerOption, TestConnectionResult, TestJiraConnectionResult, BulkImportEmployee } from "../api/types";
 import EmployeeFormDrawer from "../components/Admin/EmployeeFormDrawer";
 import EmployeeTable from "../components/Admin/EmployeeTable";
 
@@ -52,6 +53,8 @@ export default function AdminPage() {
   const [testResult, setTestResult] = useState<TestConnectionResult | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSuccessMessage, setSettingsSuccessMessage] = useState<string | null>(null);
+  const [csvParsedData, setCsvParsedData] = useState<BulkImportEmployee[]>([]);
+  const [importingCSV, setImportingCSV] = useState(false);
 
   async function loadSettings() {
     try {
@@ -221,6 +224,122 @@ export default function AdminPage() {
       setSavingSettings(false);
     }
   }
+
+  const parseCSV = (text: string): Record<string, string>[] => {
+    const lines = text.split(/\r?\n/);
+    if (lines.length === 0 || !lines[0].trim()) return [];
+
+    // Auto-detect delimiter
+    const firstLine = lines[0];
+    const commaCount = (firstLine.match(/,/g) || []).length;
+    const tabCount = (firstLine.match(/\t/g) || []).length;
+    const semicolonCount = (firstLine.match(/;/g) || []).length;
+
+    let delimiter = ",";
+    if (tabCount > commaCount && tabCount > semicolonCount) {
+      delimiter = "\t";
+    } else if (semicolonCount > commaCount && semicolonCount > tabCount) {
+      delimiter = ";";
+    }
+
+    const parseLine = (line: string) => {
+      const result = [];
+      let current = "";
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === delimiter && !inQuotes) {
+          result.push(current.trim());
+          current = "";
+        } else {
+          current += char;
+        }
+      }
+      result.push(current.trim());
+      return result.map(v => v.replace(/^"|"$/g, ""));
+    };
+
+    const headers = parseLine(lines[0]);
+    const data = [];
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const values = parseLine(lines[i]);
+      const row: Record<string, string> = {};
+      headers.forEach((header, index) => {
+        row[header] = values[index] || "";
+      });
+      data.push(row);
+    }
+    return data;
+  };
+
+  const handleCSVFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result as string;
+      if (!text) return;
+
+      try {
+        const parsedRows = parseCSV(text);
+        const mapped = parsedRows.map((row) => {
+          const getNestedValue = (obj: any, path: string): string => {
+            if (!obj || !path) return "";
+            const keys = path.split(".");
+            let val = obj;
+            for (const key of keys) {
+              val = val?.[key];
+            }
+            return val !== undefined && val !== null ? String(val) : "";
+          };
+
+          return {
+            id: getNestedValue(row, idField),
+            fullName: getNestedValue(row, fullNameField),
+            title: getNestedValue(row, titleField),
+            company: getNestedValue(row, companyField),
+            avatarUrl: getNestedValue(row, avatarUrlField),
+            managerId: getNestedValue(row, managerIdField),
+            departmentName: getNestedValue(row, departmentNameField),
+            departmentColor: getNestedValue(row, departmentColorField)
+          };
+        });
+
+        setCsvParsedData(mapped);
+      } catch (err: any) {
+        alert("Failed to parse CSV file: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImportCSV = async () => {
+    const confirmImport = confirm(
+      "WARNING: Importing from CSV will clear ALL current employees and departments in this application and replace them with the CSV records.\n\nThis action cannot be undone. Do you want to proceed?"
+    );
+    if (!confirmImport) return;
+
+    setImportingCSV(true);
+    setSettingsSuccessMessage(null);
+    try {
+      const res = await importBulkEmployees(csvParsedData);
+      if (res.success) {
+        setSettingsSuccessMessage(res.message);
+        setCsvParsedData([]);
+        await reload();
+      } else {
+        alert("Import failed: " + res.message);
+      }
+    } catch (err: any) {
+      alert("Bulk import failed: " + (err.message ?? "unknown error"));
+    } finally {
+      setImportingCSV(false);
+    }
+  };
 
   async function handleSaveConfigOnly() {
     setSavingSettings(true);
@@ -656,6 +775,74 @@ export default function AdminPage() {
               )}
             </div>
           )}
+
+          {/* CSV Directory Upload Card */}
+          <div className="bg-white border border-ink-200 rounded-xl p-6 shadow-sm flex flex-col gap-5">
+            <div>
+              <h3 className="font-display font-bold text-sm text-ink-900">Import from CSV File</h3>
+              <p className="text-[11px] text-ink-400 mt-0.5">Upload a CSV file containing your employee directory and import it directly. (Uses the JSON Field Key Mappings defined above).</p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="text-[11px] font-semibold text-ink-500">Select CSV File</label>
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={handleCSVFileChange}
+                  className="mt-1 block w-full text-xs text-ink-905 file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-brand/10 file:text-brand hover:file:bg-brand/20 transition-all cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {csvParsedData.length > 0 && (
+              <div className="border-t border-ink-100 pt-4 mt-2">
+                <h4 className="font-semibold text-xs text-ink-800 mb-3">CSV Mapping Preview</h4>
+                <p className="text-[10px] text-ink-400 mb-4">
+                  Below is a preview of the first 5 records parsed from your CSV file using the JSON Field Key Mappings defined above.
+                </p>
+
+                <div className="bg-white border border-ink-200 rounded-lg overflow-hidden">
+                  <div className="bg-ink-50/50 px-3 py-2 border-b border-ink-200">
+                    <span className="text-[10px] font-semibold text-ink-600">Previewing Parsed CSV Records ({csvParsedData.length} total)</span>
+                  </div>
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-ink-50/30 text-[10px] text-ink-400 border-b border-ink-200 font-semibold">
+                        <th className="px-3 py-1.5">ID (Key: {idField})</th>
+                        <th className="px-3 py-1.5">Full Name (Key: {fullNameField})</th>
+                        <th className="px-3 py-1.5">Job Title (Key: {titleField})</th>
+                        <th className="px-3 py-1.5">Reports To ID (Key: {managerIdField})</th>
+                        <th className="px-3 py-1.5">Department Name (Key: {departmentNameField})</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-ink-100 text-[10px] text-ink-700 font-sans">
+                      {csvParsedData.slice(0, 5).map((emp, idx) => (
+                        <tr key={idx}>
+                          <td className="px-3 py-1.5 font-mono">{emp.id || "(empty)"}</td>
+                          <td className="px-3 py-1.5 font-semibold">{emp.fullName || "(empty)"}</td>
+                          <td className="px-3 py-1.5">{emp.title || "(empty)"}</td>
+                          <td className="px-3 py-1.5 font-mono">{emp.managerId || "(CEO/empty)"}</td>
+                          <td className="px-3 py-1.5">{emp.departmentName || "Default"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleImportCSV}
+                    disabled={importingCSV}
+                    className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-semibold hover:bg-brand-dark transition-colors disabled:opacity-50"
+                  >
+                    {importingCSV ? "Importing CSV..." : "Import CSV Directory"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Form Actions (Save settings & Import data) */}
           <div className="flex justify-end pt-2 border-t border-ink-200">
