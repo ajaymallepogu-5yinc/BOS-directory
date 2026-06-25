@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
-using OrgChart.Api.Repositories;
-using OrgChart.Api.Services;
+using OrgChart.Repositories;
+using OrgChart.Services;
 
 namespace OrgChart.Api.Controllers;
 

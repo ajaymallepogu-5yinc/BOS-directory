@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
-using OrgChart.Api.Data;
-using OrgChart.Api.Models;
+using OrgChart.Repositories.Data;
+using OrgChart.Domain;
 
-namespace OrgChart.Api.Repositories;
+namespace OrgChart.Repositories;
 
 public class DynamicEmployeeRepository : IEmployeeRepository
 {

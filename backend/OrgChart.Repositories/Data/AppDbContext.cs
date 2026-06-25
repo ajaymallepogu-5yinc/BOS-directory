@@ -1,14 +1,16 @@
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
-using OrgChart.Api.Models;
+using OrgChart.Domain;
 
-namespace OrgChart.Api.Data;
+namespace OrgChart.Repositories.Data;
 
 /// <summary>
 /// This context backs the "Local" data source - the one used when employees
 /// are entered manually through the admin screen instead of pulled from an
 /// existing HR portal database.
 /// </summary>
-public class AppDbContext : DbContext
+public class AppDbContext : IdentityDbContext<IdentityUser>
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
@@ -18,9 +20,13 @@ public class AppDbContext : DbContext
     public DbSet<JiraProject> JiraProjects => Set<JiraProject>();
     public DbSet<JiraSprint> JiraSprints => Set<JiraSprint>();
     public DbSet<JiraIssue> JiraIssues => Set<JiraIssue>();
+    public DbSet<AppRole> AppRoles => Set<AppRole>();
+    public DbSet<OrgReporting> OrgReportings => Set<OrgReporting>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        base.OnModelCreating(modelBuilder);
+
         modelBuilder.Entity<Employee>()
             .HasOne(e => e.Manager)
             .WithMany(e => e.DirectReports)
@@ -31,6 +37,12 @@ public class AppDbContext : DbContext
             .HasOne(e => e.Department)
             .WithMany(d => d.Employees)
             .HasForeignKey(e => e.DepartmentId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<Employee>()
+            .HasOne(e => e.APPRole)
+            .WithMany(r => r.Employees)
+            .HasForeignKey(e => e.APPRoleId)
             .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<Department>()
@@ -48,5 +60,18 @@ public class AppDbContext : DbContext
             .WithMany(s => s.Issues)
             .HasForeignKey(i => i.SprintId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<OrgReporting>(entity =>
+        {
+            entity.HasOne(o => o.Employee)
+                .WithMany()
+                .HasForeignKey(o => o.EmployeeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(o => o.Manager)
+                .WithMany()
+                .HasForeignKey(o => o.ManagerId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
     }
 }

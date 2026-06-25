@@ -3,7 +3,6 @@ import Sidebar from "./components/Layout/Sidebar";
 import AdminPage from "./pages/AdminPage";
 import CompanyTreePage from "./pages/CompanyTreePage";
 import DepartmentTreePage from "./pages/DepartmentTreePage";
-import JiraBoardPage from "./pages/JiraBoardPage";
 
 export default function App() {
   return (
@@ -14,7 +13,6 @@ export default function App() {
           <Routes>
             <Route path="/" element={<CompanyTreePage />} />
             <Route path="/department" element={<DepartmentTreePage />} />
-            <Route path="/jira" element={<JiraBoardPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Routes>
         </main>

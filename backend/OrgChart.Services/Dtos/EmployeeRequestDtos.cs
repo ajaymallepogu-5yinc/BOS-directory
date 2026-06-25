@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace OrgChart.Api.Dtos;
+namespace OrgChart.Services.Dtos;
 
 public class CreateEmployeeDto
 {

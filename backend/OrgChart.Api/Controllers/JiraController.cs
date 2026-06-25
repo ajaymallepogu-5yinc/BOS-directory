@@ -6,8 +6,8 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using OrgChart.Api.Data;
-using OrgChart.Api.Models;
+using OrgChart.Repositories.Data;
+using OrgChart.Domain;
 
 namespace OrgChart.Api.Controllers;
 

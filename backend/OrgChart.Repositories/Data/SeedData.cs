@@ -1,13 +1,19 @@
 using Microsoft.EntityFrameworkCore;
-using OrgChart.Api.Models;
+using OrgChart.Domain;
 
-namespace OrgChart.Api.Data;
+namespace OrgChart.Repositories.Data;
 
 public static class SeedData
 {
     public static void EnsureSeeded(AppDbContext db)
     {
         if (db.Departments.Any()) return; // already seeded
+
+        // Seed App Roles
+        var adminRole = new AppRole { Name = "Admin" };
+        var employeeRole = new AppRole { Name = "Employee" };
+        db.AppRoles.AddRange(adminRole, employeeRole);
+        db.SaveChanges();
 
         var leadership = new Department { Name = "LEADERSHIP", ColorHex = "#4338CA" };
         var project = new Department { Name = "PROJECT", ColorHex = "#B45309" };
@@ -22,7 +28,9 @@ public static class SeedData
             FullName = "Aravind Krishnan",
             Title = "Chief Executive Officer",
             Company = "5Y Business Solutions",
-            DepartmentId = leadership.Id
+            DepartmentId = leadership.Id,
+            APPEmail = "aravind@5yinc.com",
+            APPRoleId = adminRole.Id
         };
         db.Employees.Add(ceo);
         db.SaveChanges();
@@ -33,31 +41,41 @@ public static class SeedData
             Title = "Manager - Operations",
             Company = "5Y Business Solutions",
             DepartmentId = leadership.Id,
-            ManagerId = ceo.Id
+            ManagerId = ceo.Id,
+            APPEmail = "vikhyath@5yinc.com",
+            APPRoleId = employeeRole.Id
         };
         db.Employees.Add(vikhyath);
         db.SaveChanges();
 
-        var sudhakar = new Employee { FullName = "Sudhakar Somyajula", Title = "Technical Director", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = vikhyath.Id };
-        var hemanth = new Employee { FullName = "Hemanth Varma G", Title = "Support Engineer - IT", Company = "5Y Business Solutions", DepartmentId = it.Id, ManagerId = vikhyath.Id };
-        var annapurna = new Employee { FullName = "Annapurna Y V L", Title = "HR Manager", Company = "5Y Business Solutions", DepartmentId = hrOps.Id, ManagerId = vikhyath.Id };
-        var suhani = new Employee { FullName = "Suhani Drolia", Title = "Product Designer", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = vikhyath.Id };
-        var subhash = new Employee { FullName = "Subhash Suman Depally", Title = "Head - Delivery", Company = "5Y Business Solutions", DepartmentId = leadership.Id, ManagerId = vikhyath.Id };
-        var ajay = new Employee { FullName = "Ajay Mallepogu", Title = "Trainee", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = vikhyath.Id };
+        var sudhakar = new Employee { FullName = "Sudhakar Somyajula", Title = "Technical Director", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = vikhyath.Id, APPEmail = "sudhakar@5yinc.com", APPRoleId = employeeRole.Id };
+        var hemanth = new Employee { FullName = "Hemanth Varma G", Title = "Support Engineer - IT", Company = "5Y Business Solutions", DepartmentId = it.Id, ManagerId = vikhyath.Id, APPEmail = "hemanth@5yinc.com", APPRoleId = employeeRole.Id };
+        var annapurna = new Employee { FullName = "Annapurna Y V L", Title = "HR Manager", Company = "5Y Business Solutions", DepartmentId = hrOps.Id, ManagerId = vikhyath.Id, APPEmail = "annapurna@5yinc.com", APPRoleId = employeeRole.Id };
+        var suhani = new Employee { FullName = "Suhani Drolia", Title = "Product Designer", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = vikhyath.Id, APPEmail = "suhani@5yinc.com", APPRoleId = employeeRole.Id };
+        var subhash = new Employee { FullName = "Subhash Suman Depally", Title = "Head - Delivery", Company = "5Y Business Solutions", DepartmentId = leadership.Id, ManagerId = vikhyath.Id, APPEmail = "subhash@5yinc.com", APPRoleId = employeeRole.Id };
+        var ajay = new Employee { FullName = "Ajay Mallepogu", Title = "Trainee", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = vikhyath.Id, APPEmail = "ajay@5yinc.com", APPRoleId = employeeRole.Id };
 
         db.Employees.AddRange(sudhakar, hemanth, annapurna, suhani, subhash, ajay);
         db.SaveChanges();
 
         // One more level down, to show project leads and individual contributors under a delivery head.
-        var leadOne = new Employee { FullName = "Priya Nair", Title = "Project Lead", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = subhash.Id };
-        var leadTwo = new Employee { FullName = "Rohit Bhatia", Title = "Project Lead", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = subhash.Id };
+        var leadOne = new Employee { FullName = "Priya Nair", Title = "Project Lead", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = subhash.Id, APPEmail = "priya@5yinc.com", APPRoleId = employeeRole.Id };
+        var leadTwo = new Employee { FullName = "Rohit Bhatia", Title = "Project Lead", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = subhash.Id, APPEmail = "rohit@5yinc.com", APPRoleId = employeeRole.Id };
         db.Employees.AddRange(leadOne, leadTwo);
         db.SaveChanges();
 
-        var dev1 = new Employee { FullName = "Meera Kulkarni", Title = "Software Engineer", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = leadOne.Id };
-        var dev2 = new Employee { FullName = "Arjun Reddy", Title = "Software Engineer", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = leadOne.Id };
-        var dev3 = new Employee { FullName = "Kavya Iyer", Title = "QA Engineer", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = leadTwo.Id };
+        var dev1 = new Employee { FullName = "Meera Kulkarni", Title = "Software Engineer", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = leadOne.Id, APPEmail = "meera@5yinc.com", APPRoleId = employeeRole.Id };
+        var dev2 = new Employee { FullName = "Arjun Reddy", Title = "Software Engineer", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = leadOne.Id, APPEmail = "arjun@5yinc.com", APPRoleId = employeeRole.Id };
+        var dev3 = new Employee { FullName = "Kavya Iyer", Title = "QA Engineer", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = leadTwo.Id, APPEmail = "kavya@5yinc.com", APPRoleId = employeeRole.Id };
         db.Employees.AddRange(dev1, dev2, dev3);
+        db.SaveChanges();
+
+        // Seed OrgReporting mapping (Direct vs Functional Managers)
+        var reporting1 = new OrgReporting { EmployeeId = ajay.Id, ManagerId = vikhyath.Id, ReportingType = "Direct" };
+        var reporting2 = new OrgReporting { EmployeeId = ajay.Id, ManagerId = sudhakar.Id, ReportingType = "Functional" };
+        var reporting3 = new OrgReporting { EmployeeId = suhani.Id, ManagerId = vikhyath.Id, ReportingType = "Direct" };
+        var reporting4 = new OrgReporting { EmployeeId = suhani.Id, ManagerId = sudhakar.Id, ReportingType = "Functional" };
+        db.OrgReportings.AddRange(reporting1, reporting2, reporting3, reporting4);
         db.SaveChanges();
     }
 

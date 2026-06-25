@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
-using OrgChart.Api.Data;
-using OrgChart.Api.Models;
+using OrgChart.Repositories.Data;
+using OrgChart.Domain;
 
-namespace OrgChart.Api.Repositories;
+namespace OrgChart.Repositories;
 
 /// <summary>Data source used when employees are entered manually through the admin screen.</summary>
 public class EfEmployeeRepository : IEmployeeRepository

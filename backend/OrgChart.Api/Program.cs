@@ -1,7 +1,8 @@
 using Microsoft.EntityFrameworkCore;
-using OrgChart.Api.Data;
-using OrgChart.Api.Repositories;
-using OrgChart.Api.Services;
+using Microsoft.AspNetCore.Identity;
+using OrgChart.Repositories.Data;
+using OrgChart.Repositories;
+using OrgChart.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -73,6 +74,9 @@ else
         options.UseSqlServer(builder.Configuration.GetConnectionString("LocalDb")));
 }
 
+builder.Services.AddIdentity<IdentityUser, IdentityRole>()
+    .AddEntityFrameworkStores<AppDbContext>();
+
 static string ConvertPostgresUriToConnectionString(string uriString)
 {
     if (string.IsNullOrWhiteSpace(uriString)) return uriString;
@@ -124,7 +128,7 @@ using (var scope = app.Services.CreateScope())
             using (var cmd = conn.CreateCommand())
             {
                 if (conn.State != System.Data.ConnectionState.Open) conn.Open();
-                cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'Employees')";
+                cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'AppRoles')";
                 tableExists = Convert.ToBoolean(cmd.ExecuteScalar());
             }
         }
@@ -138,7 +142,7 @@ using (var scope = app.Services.CreateScope())
             try
             {
                 db.Database.ExecuteSqlRaw(@"
-                    DROP TABLE IF EXISTS ""Employees"", ""Departments"", ""DataSourceConfigs"", ""JiraProjects"", ""JiraSprints"", ""JiraIssues"" CASCADE;
+                    DROP TABLE IF EXISTS ""Employees"", ""Departments"", ""DataSourceConfigs"", ""JiraProjects"", ""JiraSprints"", ""JiraIssues"", ""AppRoles"", ""OrgReportings"", ""AspNetUsers"", ""AspNetRoles"", ""AspNetUserClaims"", ""AspNetUserLogins"", ""AspNetUserRoles"", ""AspNetUserTokens"", ""AspNetRoleClaims"" CASCADE;
                 ");
             }
             catch { }

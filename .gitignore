@@ -13,3 +13,6 @@ backend/**/appsettings.Production.json
 *.log
 .vscode/
 .idea/
+.vs/
+backend/.vs/
+

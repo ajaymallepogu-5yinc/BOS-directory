@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace OrgChart.Api.Dtos;
+namespace OrgChart.Services.Dtos;
 
 public class BulkImportDto
 {

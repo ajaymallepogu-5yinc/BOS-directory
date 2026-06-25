@@ -1,4 +1,4 @@
-namespace OrgChart.Api.Dtos;
+namespace OrgChart.Services.Dtos;
 
 public class DepartmentDto
 {

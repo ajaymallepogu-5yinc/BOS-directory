@@ -40,3 +40,54 @@ body {
 .chart-canvas::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Custom tree background image uploaded by the user */
+.bg-tree-canvas {
+  background-color: #070D19;
+  background-image: url('/background-tree.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* Floating glass search bar — placeholder matches icon color exactly */
+.search-glass-input::placeholder {
+  color: rgba(255, 255, 255, 0.95) !important;
+  opacity: 1;
+}
+
+/* Smooth subtree expand/collapse animations (premium easeOutExpo scale/fade transitions) */
+@keyframes expandSubtreeRight {
+  from {
+    opacity: 0;
+    transform: scaleX(0.95) translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1) translateX(0);
+  }
+}
+
+@keyframes expandSubtreeDown {
+  from {
+    opacity: 0;
+    transform: scaleY(0.95) translateY(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1) translateY(0);
+  }
+}
+
+.animate-expand-right {
+  animation: expandSubtreeRight 0.45s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+  transform-origin: left center;
+  /* Allow overflow visible so that absolute elements like right-side buttons are never clipped */
+  overflow: visible;
+}
+
+.animate-expand-down {
+  animation: expandSubtreeDown 0.45s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+  transform-origin: top center;
+  overflow: visible;
+}

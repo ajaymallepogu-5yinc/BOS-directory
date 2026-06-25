@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace OrgChart.Api.Models;
+namespace OrgChart.Domain;
 
 public class DataSourceConfig
 {

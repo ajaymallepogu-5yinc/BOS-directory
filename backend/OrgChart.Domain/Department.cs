@@ -1,4 +1,4 @@
-namespace OrgChart.Api.Models;
+namespace OrgChart.Domain;
 
 public class Department
 {

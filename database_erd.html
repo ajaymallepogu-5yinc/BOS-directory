@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OrgChart Database ERD</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f8fafc;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            max-width: 1200px;
+            width: 100%;
+        }
+        h1 {
+            color: #0f172a;
+            font-size: 24px;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        p {
+            color: #64748b;
+            font-size: 14px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+    </style>
+    <!-- Load Mermaid JS from CDN -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>Database Entity Relationship Diagram (ERD)</h1>
+        <p>Open this page, right-click to print/save as PDF, or take a screenshot to download it.</p>
+        
+        <pre class="mermaid">
+        erDiagram
+            %% Core Domain
+            Departments ||--o{ Employees : "contains"
+            AppRoles ||--o{ Employees : "categorizes"
+            Employees ||--o{ OrgReportings : "has_reporting"
+            
+            %% Identity Mapping
+            AspNetUsers ||--o| Employees : "links_to"
+            AspNetUsers ||--o{ AspNetUserRoles : "has_role"
+            AspNetRoles ||--o{ AspNetUserRoles : "linked_to"
+            AspNetUsers ||--o{ AspNetUserLogins : "sso_auth"
+            AspNetUsers ||--o{ AspNetUserClaims : "has_claims"
+            AspNetUsers ||--o{ AspNetUserTokens : "uses_tokens"
+            AspNetRoles ||--o{ AspNetRoleClaims : "has_role_claims"
+
+            %% Jira Integration
+            JiraProjects ||--o{ JiraIssues : "owns"
+            JiraSprints ||--o{ JiraIssues : "sprint_contains"
+
+            Departments {
+                int Id PK
+                string Name
+                string ColorHex
+            }
+
+            Employees {
+                int Id PK
+                string FullName
+                string Title
+                string Company
+                string AvatarUrl
+                int ManagerId FK
+                int DepartmentId FK
+                string AspNetUserId FK
+                string APPEmail
+                string HRMSEmail
+                int APPRoleId FK
+            }
+
+            AppRoles {
+                int Id PK
+                string Name
+            }
+
+            OrgReportings {
+                int Id PK
+                int EmployeeId FK
+                int ManagerId FK
+                string ReportingType
+            }
+
+            DataSourceConfigs {
+                int Id PK
+                string Mode
+                string HrPortalApiUrl
+                string HrPortalApiAuthHeaderName
+                string HrPortalApiAuthHeaderValue
+                string JiraApiUrl
+                string JiraUserEmail
+                string JiraApiToken
+                string IdField
+                string FullNameField
+                string TitleField
+                string CompanyField
+                string AvatarUrlField
+                string ManagerIdField
+                string DepartmentIdField
+                string DepartmentNameField
+                string DepartmentColorField
+            }
+
+            JiraProjects {
+                int Id PK
+                string Key
+                string Name
+            }
+
+            JiraSprints {
+                int Id PK
+                string Name
+                string State
+                int BoardId
+            }
+
+            JiraIssues {
+                int Id PK
+                string Key
+                string Summary
+                string Status
+                string Assignee
+                string Priority
+                string Description
+                string ExpectedTime
+                string ActualTime
+                int SprintId FK
+                int ProjectId FK
+            }
+        </pre>
+    </div>
+</body>
+</html>

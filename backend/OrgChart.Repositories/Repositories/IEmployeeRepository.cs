@@ -1,6 +1,6 @@
-using OrgChart.Api.Models;
+using OrgChart.Domain;
 
-namespace OrgChart.Api.Repositories;
+namespace OrgChart.Repositories;
 
 /// <summary>
 /// Anything that can supply employee data to the rest of the app, regardless

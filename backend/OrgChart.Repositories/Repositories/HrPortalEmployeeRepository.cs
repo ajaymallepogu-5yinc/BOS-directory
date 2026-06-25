@@ -5,10 +5,10 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
-using OrgChart.Api.Data;
-using OrgChart.Api.Models;
+using OrgChart.Repositories.Data;
+using OrgChart.Domain;
 
-namespace OrgChart.Api.Repositories;
+namespace OrgChart.Repositories;
 
 /// <summary>
 /// Data source that reads employees dynamically from your company's existing

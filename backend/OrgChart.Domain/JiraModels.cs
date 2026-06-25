@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
-namespace OrgChart.Api.Models;
+namespace OrgChart.Domain;
 
 public class JiraProject
 {

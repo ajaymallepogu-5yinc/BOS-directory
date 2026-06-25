@@ -8,26 +8,27 @@ interface Props {
 
 export default function DepartmentLegend({ departments, activeId, onSelect }: Props) {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex items-center gap-1 flex-nowrap">
       {departments.map((dept) => {
         const active = dept.id === activeId;
         return (
           <button
             key={dept.id}
             onClick={() => onSelect(dept.id)}
-            className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`inline-flex items-center rounded-lg whitespace-nowrap text-sm px-3.5 py-1.5 transition-all duration-150 ${
               active
-                ? "border-transparent text-white"
-                : "border-ink-200 bg-white text-ink-600 hover:border-ink-400"
+                ? "bg-white/15 text-white font-medium"
+                : "text-white hover:bg-white/8 font-medium"
             }`}
-            style={active ? { backgroundColor: dept.colorHex } : undefined}
           >
-            <span
-              className="h-2 w-2 rounded-full"
-              style={{ backgroundColor: active ? "white" : dept.colorHex }}
-            />
             {dept.name}
-            <span className="font-mono text-[10px] opacity-70">{dept.employeeCount}</span>
+            <span
+              className={`text-xs font-mono ml-1.5 ${
+                active ? "text-white/70" : "text-white/40"
+              }`}
+            >
+              {dept.employeeCount}
+            </span>
           </button>
         );
       })}

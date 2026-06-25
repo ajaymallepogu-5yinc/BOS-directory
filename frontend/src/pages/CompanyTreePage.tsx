@@ -1,30 +1,46 @@
-import { useState } from "react";
 import { fetchCompanyTree } from "../api/employeeApi";
 import OrgTree from "../components/OrgChart/OrgTree";
 import { useOrgTree } from "../hooks/useOrgTree";
 
 export default function CompanyTreePage() {
-  const [search, setSearch] = useState("");
   const { roots, loading, error } = useOrgTree(fetchCompanyTree, []);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-ink-200 bg-white px-6 py-3">
-        <div>
-          <h1 className="font-display text-base font-bold text-ink-900">Company Tree</h1>
-          <p className="text-xs text-ink-400">Everyone, from the top down</p>
-        </div>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Find a person..."
-          className="w-64 rounded-lg border border-ink-200 px-3 py-1.5 text-sm outline-none focus:border-brand-light focus:ring-1 focus:ring-brand-light"
-        />
-      </div>
+    <div className="relative flex h-full flex-col bg-tree-canvas">
+      <OrgTree roots={roots} />
 
-      {loading && <div className="p-10 text-sm text-ink-400">Loading the chart...</div>}
-      {error && <div className="p-10 text-sm text-rose-600">{error}</div>}
-      {!loading && !error && <OrgTree roots={roots} searchTerm={search} />}
+      {loading && (
+        <div
+          className="absolute inset-0 z-20 flex items-center justify-center"
+          style={{
+            background: "rgba(7,13,25,0.40)",
+            backdropFilter: "blur(3px)",
+            WebkitBackdropFilter: "blur(3px)",
+          }}
+        >
+          <div
+            className="flex items-center gap-2.5 rounded-full px-5 py-2.5"
+            style={{
+              background: "rgba(255,255,255,0.08)",
+              border: "1px solid rgba(255,255,255,0.15)",
+            }}
+          >
+            <svg className="h-4 w-4 animate-spin" style={{ color: "rgba(255,255,255,0.7)" }} fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
+            </svg>
+            <span className="text-xs font-medium" style={{ color: "rgba(255,255,255,0.75)" }}>
+              Loading…
+            </span>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center">
+          <p className="text-sm text-rose-400">{error}</p>
+        </div>
+      )}
     </div>
   );
 }

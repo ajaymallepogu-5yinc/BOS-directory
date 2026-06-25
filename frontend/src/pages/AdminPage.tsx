@@ -299,6 +299,11 @@ export default function AdminPage() {
   }
 
   const parseCSV = (text: string): Record<string, string>[] => {
+    // Check if it's a binary Excel file or zip archive
+    if (text.startsWith("PK\u0003\u0004") || text.includes("[Content_Types].xml") || text.includes("_rels/.rels")) {
+      throw new Error("The selected file is an Excel spreadsheet (.xlsx) or zip archive, not a plain text CSV file.\n\nPlease open the file in Excel, select 'Save As', and export it as 'CSV (Comma delimited) (*.csv)' before uploading.");
+    }
+
     // Strip UTF-8 BOM if present (common in Excel exports)
     if (text.startsWith("\ufeff")) {
       text = text.substring(1);
@@ -356,6 +361,17 @@ export default function AdminPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Check file extension
+    const fileExt = file.name.split('.').pop()?.toLowerCase();
+    if (fileExt !== 'csv') {
+      alert("Invalid file format. Please upload a plain text CSV (.csv) file.\n\nIf you are using Excel, click 'Save As' and select 'CSV (Comma delimited) (*.csv)'.");
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      setCsvRawRows([]);
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (evt) => {
       const text = evt.target?.result as string;
@@ -365,7 +381,11 @@ export default function AdminPage() {
         const parsedRows = parseCSV(text);
         setCsvRawRows(parsedRows);
       } catch (err: any) {
-        alert("Failed to parse CSV file: " + err.message);
+        alert(err.message);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        setCsvRawRows([]);
       }
     };
     reader.readAsText(file);

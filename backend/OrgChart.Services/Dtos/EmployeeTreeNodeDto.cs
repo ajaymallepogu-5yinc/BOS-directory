@@ -1,4 +1,4 @@
-namespace OrgChart.Api.Dtos;
+namespace OrgChart.Services.Dtos;
 
 /// <summary>
 /// Shape of one box in the org chart, with its children nested inline so the

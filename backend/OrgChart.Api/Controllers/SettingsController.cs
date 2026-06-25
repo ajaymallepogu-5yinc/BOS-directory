@@ -6,9 +6,9 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using OrgChart.Api.Data;
-using OrgChart.Api.Models;
-using OrgChart.Api.Repositories;
+using OrgChart.Repositories.Data;
+using OrgChart.Domain;
+using OrgChart.Repositories;
 
 namespace OrgChart.Api.Controllers;
 
@@ -289,6 +289,12 @@ public class SettingsController : ControllerBase
 
             // Clear existing data in local database
             var existingEmployees = await _db.Employees.ToListAsync();
+            foreach (var emp in existingEmployees)
+            {
+                emp.ManagerId = null;
+            }
+            await _db.SaveChangesAsync();
+
             _db.Employees.RemoveRange(existingEmployees);
             await _db.SaveChangesAsync();
 

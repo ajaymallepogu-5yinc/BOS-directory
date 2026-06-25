@@ -1,4 +1,4 @@
-namespace OrgChart.Api.Dtos;
+namespace OrgChart.Services.Dtos;
 
 /// <summary>Flat representation used by the admin table and single-record lookups.</summary>
 public class EmployeeDto

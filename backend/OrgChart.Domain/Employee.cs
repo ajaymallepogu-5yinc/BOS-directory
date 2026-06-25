@@ -1,4 +1,4 @@
-namespace OrgChart.Api.Models;
+namespace OrgChart.Domain;
 
 /// <summary>
 /// A single person in the org chart. ManagerId is the self-reference that
@@ -24,4 +24,12 @@ public class Employee
 
     public int DepartmentId { get; set; }
     public Department Department { get; set; } = null!;
+
+    // Authentication and Role fields
+    public string? AspNetUserId { get; set; }
+    public string APPEmail { get; set; } = string.Empty;
+    public string? HRMSEmail { get; set; }
+    
+    public int? APPRoleId { get; set; }
+    public AppRole? APPRole { get; set; }
 }

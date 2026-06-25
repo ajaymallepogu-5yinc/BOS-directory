@@ -1,7 +1,7 @@
-using OrgChart.Api.Dtos;
-using OrgChart.Api.Models;
+using OrgChart.Services.Dtos;
+using OrgChart.Domain;
 
-namespace OrgChart.Api.Services;
+namespace OrgChart.Services;
 
 public interface IOrgTreeBuilder
 {

@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using OrgChart.Api.Data;
-using OrgChart.Api.Dtos;
-using OrgChart.Api.Models;
-using OrgChart.Api.Repositories;
+using OrgChart.Repositories.Data;
+using OrgChart.Services.Dtos;
+using OrgChart.Domain;
+using OrgChart.Repositories;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -141,6 +141,12 @@ public class EmployeesController : ControllerBase
         {
             // Clear existing employees and departments
             var existingEmployees = await _db.Employees.ToListAsync();
+            foreach (var emp in existingEmployees)
+            {
+                emp.ManagerId = null;
+            }
+            await _db.SaveChangesAsync();
+
             _db.Employees.RemoveRange(existingEmployees);
             await _db.SaveChangesAsync();
 
