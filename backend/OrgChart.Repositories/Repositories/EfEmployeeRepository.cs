@@ -50,6 +50,13 @@ public class EfEmployeeRepository : IEmployeeRepository
         var existing = await _db.Employees.FirstOrDefaultAsync(e => e.Id == id);
         if (existing is null) return false;
 
+        // Remove matrix reporting records referring to this employee
+        var reportings = await _db.OrgReportings
+            .Where(o => o.EmployeeId == id || o.ManagerId == id)
+            .ToListAsync();
+        _db.OrgReportings.RemoveRange(reportings);
+        await _db.SaveChangesAsync();
+
         // Re-parent direct reports to the deleted person's own manager instead of orphaning them.
         var reports = await _db.Employees.Where(e => e.ManagerId == id).ToListAsync();
         foreach (var report in reports)

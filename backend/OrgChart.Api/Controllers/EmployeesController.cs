@@ -139,6 +139,11 @@ public class EmployeesController : ControllerBase
 
         try
         {
+            // Clear existing OrgReportings first
+            var existingReportings = await _db.OrgReportings.ToListAsync();
+            _db.OrgReportings.RemoveRange(existingReportings);
+            await _db.SaveChangesAsync();
+
             // Clear existing employees and departments
             var existingEmployees = await _db.Employees.ToListAsync();
             foreach (var emp in existingEmployees)
