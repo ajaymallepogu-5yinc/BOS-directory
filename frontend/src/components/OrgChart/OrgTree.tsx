@@ -311,16 +311,14 @@ export default function OrgTree({ roots, searchTerm: externalSearch, contentOpac
     return () => clearTimeout(timer);
   }, [selectedNodeId, layoutMode, allEmployees]);
 
-  // Toggle node expansion with auto-collapse siblings
-  const toggleExpand = (nodeId: number, siblingIds: number[]) => {
+  // Toggle node expansion
+  const toggleExpand = (nodeId: number, _siblingIds: number[]) => {
     setExpandedNodeIds((prev) => {
       const next = new Set(prev);
       if (next.has(nodeId)) {
         next.delete(nodeId);
       } else {
         next.add(nodeId);
-        // Collapse siblings to keep canvas clean
-        siblingIds.forEach((id) => next.delete(id));
       }
       return next;
     });
