@@ -10,5 +10,5 @@ public class Department
     /// <summary>Hex color used to render the department's chip/legend swatch.</summary>
     public string ColorHex { get; set; } = "#4338CA";
 
-    public ICollection<Employee> Employees { get; set; } = new List<Employee>();
+    public ICollection<EmpDepartment> EmpDepartments { get; set; } = new List<EmpDepartment>();
 }

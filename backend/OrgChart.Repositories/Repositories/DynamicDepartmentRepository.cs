@@ -32,7 +32,13 @@ public class DynamicDepartmentRepository : IDepartmentRepository
                 .Select(g =>
                 {
                     var dept = g.First().Department!;
-                    dept.Employees = g.ToList();
+                    dept.EmpDepartments = g.Select(e => new EmpDepartment
+                    {
+                        Employee = e,
+                        EmployeeId = e.Id,
+                        Department = dept,
+                        DepartmentId = dept.Id
+                    }).ToList();
                     return dept;
                 })
                 .ToList();

@@ -23,59 +23,90 @@ public static class SeedData
         db.Departments.AddRange(leadership, project, it, hrOps);
         db.SaveChanges();
 
-        var ceo = new Employee
+        // Helper function to initialize user fields for Employee inheriting from IdentityUser<int>
+        Employee CreateEmployee(string fullName, string title, string company, string email, string? avatarUrl, int roleId)
         {
-            FullName = "Aravind Krishnan",
-            Title = "Chief Executive Officer",
-            Company = "5Y Business Solutions",
-            DepartmentId = leadership.Id,
-            APPEmail = "aravind@5yinc.com",
-            APPRoleId = adminRole.Id
-        };
+            return new Employee
+            {
+                FullName = fullName,
+                Title = title,
+                Company = company,
+                APPEmail = email,
+                Email = email,
+                NormalizedEmail = email.ToUpperInvariant(),
+                UserName = email,
+                NormalizedUserName = email.ToUpperInvariant(),
+                SecurityStamp = Guid.NewGuid().ToString(),
+                EmailConfirmed = true,
+                AvatarUrl = avatarUrl,
+                APPRoleId = roleId
+            };
+        }
+
+        var ceo = CreateEmployee("Aravind Krishnan", "Chief Executive Officer", "5Y Business Solutions", "aravind@5yinc.com", null, adminRole.Id);
         db.Employees.Add(ceo);
         db.SaveChanges();
 
-        var vikhyath = new Employee
-        {
-            FullName = "Vikhyath Rai",
-            Title = "Manager - Operations",
-            Company = "5Y Business Solutions",
-            DepartmentId = leadership.Id,
-            ManagerId = ceo.Id,
-            APPEmail = "vikhyath@5yinc.com",
-            APPRoleId = employeeRole.Id
-        };
+        var vikhyath = CreateEmployee("Vikhyath Rai", "Manager - Operations", "5Y Business Solutions", "vikhyath@5yinc.com", null, employeeRole.Id);
         db.Employees.Add(vikhyath);
         db.SaveChanges();
 
-        var sudhakar = new Employee { FullName = "Sudhakar Somyajula", Title = "Technical Director", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = vikhyath.Id, APPEmail = "sudhakar@5yinc.com", APPRoleId = employeeRole.Id };
-        var hemanth = new Employee { FullName = "Hemanth Varma G", Title = "Support Engineer - IT", Company = "5Y Business Solutions", DepartmentId = it.Id, ManagerId = vikhyath.Id, APPEmail = "hemanth@5yinc.com", APPRoleId = employeeRole.Id };
-        var annapurna = new Employee { FullName = "Annapurna Y V L", Title = "HR Manager", Company = "5Y Business Solutions", DepartmentId = hrOps.Id, ManagerId = vikhyath.Id, APPEmail = "annapurna@5yinc.com", APPRoleId = employeeRole.Id };
-        var suhani = new Employee { FullName = "Suhani Drolia", Title = "Product Designer", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = vikhyath.Id, APPEmail = "suhani@5yinc.com", APPRoleId = employeeRole.Id };
-        var subhash = new Employee { FullName = "Subhash Suman Depally", Title = "Head - Delivery", Company = "5Y Business Solutions", DepartmentId = leadership.Id, ManagerId = vikhyath.Id, APPEmail = "subhash@5yinc.com", APPRoleId = employeeRole.Id };
-        var ajay = new Employee { FullName = "Ajay Mallepogu", Title = "Trainee", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = vikhyath.Id, APPEmail = "ajay@5yinc.com", APPRoleId = employeeRole.Id };
+        var sudhakar = CreateEmployee("Sudhakar Somyajula", "Technical Director", "5Y Business Solutions", "sudhakar@5yinc.com", null, employeeRole.Id);
+        var hemanth = CreateEmployee("Hemanth Varma G", "Support Engineer - IT", "5Y Business Solutions", "hemanth@5yinc.com", null, employeeRole.Id);
+        var annapurna = CreateEmployee("Annapurna Y V L", "HR Manager", "5Y Business Solutions", "annapurna@5yinc.com", null, employeeRole.Id);
+        var suhani = CreateEmployee("Suhani Drolia", "Product Designer", "5Y Business Solutions", "suhani@5yinc.com", null, employeeRole.Id);
+        var subhash = CreateEmployee("Subhash Suman Depally", "Head - Delivery", "5Y Business Solutions", "subhash@5yinc.com", null, employeeRole.Id);
+        var ajay = CreateEmployee("Ajay Mallepogu", "Trainee", "5Y Business Solutions", "ajay@5yinc.com", null, employeeRole.Id);
 
         db.Employees.AddRange(sudhakar, hemanth, annapurna, suhani, subhash, ajay);
         db.SaveChanges();
 
-        // One more level down, to show project leads and individual contributors under a delivery head.
-        var leadOne = new Employee { FullName = "Priya Nair", Title = "Project Lead", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = subhash.Id, APPEmail = "priya@5yinc.com", APPRoleId = employeeRole.Id };
-        var leadTwo = new Employee { FullName = "Rohit Bhatia", Title = "Project Lead", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = subhash.Id, APPEmail = "rohit@5yinc.com", APPRoleId = employeeRole.Id };
+        var leadOne = CreateEmployee("Priya Nair", "Project Lead", "5Y Business Solutions", "priya@5yinc.com", null, employeeRole.Id);
+        var leadTwo = CreateEmployee("Rohit Bhatia", "Project Lead", "5Y Business Solutions", "rohit@5yinc.com", null, employeeRole.Id);
         db.Employees.AddRange(leadOne, leadTwo);
         db.SaveChanges();
 
-        var dev1 = new Employee { FullName = "Meera Kulkarni", Title = "Software Engineer", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = leadOne.Id, APPEmail = "meera@5yinc.com", APPRoleId = employeeRole.Id };
-        var dev2 = new Employee { FullName = "Arjun Reddy", Title = "Software Engineer", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = leadOne.Id, APPEmail = "arjun@5yinc.com", APPRoleId = employeeRole.Id };
-        var dev3 = new Employee { FullName = "Kavya Iyer", Title = "QA Engineer", Company = "5Y Business Solutions", DepartmentId = project.Id, ManagerId = leadTwo.Id, APPEmail = "kavya@5yinc.com", APPRoleId = employeeRole.Id };
+        var dev1 = CreateEmployee("Meera Kulkarni", "Software Engineer", "5Y Business Solutions", "meera@5yinc.com", null, employeeRole.Id);
+        var dev2 = CreateEmployee("Arjun Reddy", "Software Engineer", "5Y Business Solutions", "arjun@5yinc.com", null, employeeRole.Id);
+        var dev3 = CreateEmployee("Kavya Iyer", "QA Engineer", "5Y Business Solutions", "kavya@5yinc.com", null, employeeRole.Id);
         db.Employees.AddRange(dev1, dev2, dev3);
         db.SaveChanges();
 
+        // Seed many-to-many department relations (EmpDepartments)
+        db.EmpDepartments.AddRange(
+            new EmpDepartment { EmployeeId = ceo.Id, DepartmentId = leadership.Id },
+            new EmpDepartment { EmployeeId = vikhyath.Id, DepartmentId = leadership.Id },
+            new EmpDepartment { EmployeeId = sudhakar.Id, DepartmentId = project.Id },
+            new EmpDepartment { EmployeeId = hemanth.Id, DepartmentId = it.Id },
+            new EmpDepartment { EmployeeId = annapurna.Id, DepartmentId = hrOps.Id },
+            new EmpDepartment { EmployeeId = suhani.Id, DepartmentId = project.Id },
+            new EmpDepartment { EmployeeId = subhash.Id, DepartmentId = leadership.Id },
+            new EmpDepartment { EmployeeId = ajay.Id, DepartmentId = project.Id },
+            new EmpDepartment { EmployeeId = leadOne.Id, DepartmentId = project.Id },
+            new EmpDepartment { EmployeeId = leadTwo.Id, DepartmentId = project.Id },
+            new EmpDepartment { EmployeeId = dev1.Id, DepartmentId = project.Id },
+            new EmpDepartment { EmployeeId = dev2.Id, DepartmentId = project.Id },
+            new EmpDepartment { EmployeeId = dev3.Id, DepartmentId = project.Id }
+        );
+        db.SaveChanges();
+
         // Seed OrgReporting mapping (Direct vs Functional Managers)
-        var reporting1 = new OrgReporting { EmployeeId = ajay.Id, ManagerId = vikhyath.Id, ReportingType = "Direct" };
-        var reporting2 = new OrgReporting { EmployeeId = ajay.Id, ManagerId = sudhakar.Id, ReportingType = "Functional" };
-        var reporting3 = new OrgReporting { EmployeeId = suhani.Id, ManagerId = vikhyath.Id, ReportingType = "Direct" };
-        var reporting4 = new OrgReporting { EmployeeId = suhani.Id, ManagerId = sudhakar.Id, ReportingType = "Functional" };
-        db.OrgReportings.AddRange(reporting1, reporting2, reporting3, reporting4);
+        db.OrgReportings.AddRange(
+            new OrgReporting { EmployeeId = vikhyath.Id, ManagerId = ceo.Id, ReportingType = "Direct" },
+            new OrgReporting { EmployeeId = sudhakar.Id, ManagerId = vikhyath.Id, ReportingType = "Direct" },
+            new OrgReporting { EmployeeId = hemanth.Id, ManagerId = vikhyath.Id, ReportingType = "Direct" },
+            new OrgReporting { EmployeeId = annapurna.Id, ManagerId = vikhyath.Id, ReportingType = "Direct" },
+            new OrgReporting { EmployeeId = suhani.Id, ManagerId = vikhyath.Id, ReportingType = "Direct" },
+            new OrgReporting { EmployeeId = suhani.Id, ManagerId = sudhakar.Id, ReportingType = "Functional" },
+            new OrgReporting { EmployeeId = subhash.Id, ManagerId = vikhyath.Id, ReportingType = "Direct" },
+            new OrgReporting { EmployeeId = ajay.Id, ManagerId = vikhyath.Id, ReportingType = "Direct" },
+            new OrgReporting { EmployeeId = ajay.Id, ManagerId = sudhakar.Id, ReportingType = "Functional" },
+            new OrgReporting { EmployeeId = leadOne.Id, ManagerId = subhash.Id, ReportingType = "Direct" },
+            new OrgReporting { EmployeeId = leadTwo.Id, ManagerId = subhash.Id, ReportingType = "Direct" },
+            new OrgReporting { EmployeeId = dev1.Id, ManagerId = leadOne.Id, ReportingType = "Direct" },
+            new OrgReporting { EmployeeId = dev2.Id, ManagerId = leadOne.Id, ReportingType = "Direct" },
+            new OrgReporting { EmployeeId = dev3.Id, ManagerId = leadTwo.Id, ReportingType = "Direct" }
+        );
         db.SaveChanges();
     }
 

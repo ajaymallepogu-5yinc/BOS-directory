@@ -24,7 +24,7 @@ public class DepartmentsController : ControllerBase
             Id = d.Id,
             Name = d.Name,
             ColorHex = d.ColorHex,
-            EmployeeCount = d.Employees.Count
+            EmployeeCount = d.EmpDepartments.Count
         }).ToList();
 
         return Ok(result);

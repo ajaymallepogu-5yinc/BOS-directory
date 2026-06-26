@@ -5,12 +5,7 @@ using OrgChart.Domain;
 
 namespace OrgChart.Repositories.Data;
 
-/// <summary>
-/// This context backs the "Local" data source - the one used when employees
-/// are entered manually through the admin screen instead of pulled from an
-/// existing HR portal database.
-/// </summary>
-public class AppDbContext : IdentityDbContext<IdentityUser>
+public class AppDbContext : IdentityDbContext<Employee, IdentityRole<int>, int>
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
@@ -22,23 +17,29 @@ public class AppDbContext : IdentityDbContext<IdentityUser>
     public DbSet<JiraIssue> JiraIssues => Set<JiraIssue>();
     public DbSet<AppRole> AppRoles => Set<AppRole>();
     public DbSet<OrgReporting> OrgReportings => Set<OrgReporting>();
+    public DbSet<EmpDepartment> EmpDepartments => Set<EmpDepartment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
 
-        modelBuilder.Entity<Employee>()
-            .HasOne(e => e.Manager)
-            .WithMany(e => e.DirectReports)
-            .HasForeignKey(e => e.ManagerId)
-            .OnDelete(DeleteBehavior.Restrict); // don't cascade-delete a whole team if a manager row is removed
+        // EmpDepartment Composite Key and Relations
+        modelBuilder.Entity<EmpDepartment>()
+            .HasKey(ed => new { ed.EmployeeId, ed.DepartmentId });
 
-        modelBuilder.Entity<Employee>()
-            .HasOne(e => e.Department)
-            .WithMany(d => d.Employees)
-            .HasForeignKey(e => e.DepartmentId)
-            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<EmpDepartment>()
+            .HasOne(ed => ed.Employee)
+            .WithMany(e => e.EmpDepartments)
+            .HasForeignKey(ed => ed.EmployeeId)
+            .OnDelete(DeleteBehavior.Cascade);
 
+        modelBuilder.Entity<EmpDepartment>()
+            .HasOne(ed => ed.Department)
+            .WithMany(d => d.EmpDepartments)
+            .HasForeignKey(ed => ed.DepartmentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Employee to AppRole Relation
         modelBuilder.Entity<Employee>()
             .HasOne(e => e.APPRole)
             .WithMany(r => r.Employees)
@@ -66,7 +67,7 @@ public class AppDbContext : IdentityDbContext<IdentityUser>
             entity.HasOne(o => o.Employee)
                 .WithMany()
                 .HasForeignKey(o => o.EmployeeId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.Restrict); // Keep Restrict to avoid multiple cascade paths error in SQL Server
 
             entity.HasOne(o => o.Manager)
                 .WithMany()

@@ -64,7 +64,6 @@ public class OrgTreeBuilder : IOrgTreeBuilder
                 {
                     // Found a reporting loop! Break it in memory by setting ManagerId to null.
                     current.ManagerId = null;
-                    current.Manager = null;
                     break;
                 }
 

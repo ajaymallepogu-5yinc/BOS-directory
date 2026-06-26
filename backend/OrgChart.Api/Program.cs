@@ -74,7 +74,7 @@ else
         options.UseSqlServer(builder.Configuration.GetConnectionString("LocalDb")));
 }
 
-builder.Services.AddIdentity<IdentityUser, IdentityRole>()
+builder.Services.AddIdentity<OrgChart.Domain.Employee, IdentityRole<int>>()
     .AddEntityFrameworkStores<AppDbContext>();
 
 static string ConvertPostgresUriToConnectionString(string uriString)
@@ -142,7 +142,7 @@ using (var scope = app.Services.CreateScope())
             try
             {
                 db.Database.ExecuteSqlRaw(@"
-                    DROP TABLE IF EXISTS ""Employees"", ""Departments"", ""DataSourceConfigs"", ""JiraProjects"", ""JiraSprints"", ""JiraIssues"", ""AppRoles"", ""OrgReportings"", ""AspNetUsers"", ""AspNetRoles"", ""AspNetUserClaims"", ""AspNetUserLogins"", ""AspNetUserRoles"", ""AspNetUserTokens"", ""AspNetRoleClaims"" CASCADE;
+                    DROP TABLE IF EXISTS ""Employees"", ""Departments"", ""DataSourceConfigs"", ""JiraProjects"", ""JiraSprints"", ""JiraIssues"", ""AppRoles"", ""OrgReportings"", ""EmpDepartments"", ""AspNetUsers"", ""AspNetRoles"", ""AspNetUserClaims"", ""AspNetUserLogins"", ""AspNetUserRoles"", ""AspNetUserTokens"", ""AspNetRoleClaims"" CASCADE;
                 ");
             }
             catch { }

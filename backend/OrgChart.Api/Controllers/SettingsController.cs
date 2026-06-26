@@ -196,7 +196,7 @@ public class SettingsController : ControllerBase
                         Title = emp.Title,
                         Company = emp.Company,
                         ManagerId = emp.ManagerId,
-                        DepartmentId = emp.DepartmentId,
+                        DepartmentId = emp.DepartmentId ?? 0,
                         DepartmentName = emp.Department?.Name ?? ""
                     });
                 }
@@ -292,20 +292,23 @@ public class SettingsController : ControllerBase
             _db.OrgReportings.RemoveRange(existingReportings);
             await _db.SaveChangesAsync();
 
-            // Clear existing data in local database
-            var existingEmployees = await _db.Employees.ToListAsync();
-            foreach (var emp in existingEmployees)
-            {
-                emp.ManagerId = null;
-            }
+            // Clear existing EmpDepartments
+            var existingEmpDepts = await _db.EmpDepartments.ToListAsync();
+            _db.EmpDepartments.RemoveRange(existingEmpDepts);
             await _db.SaveChangesAsync();
 
+            // Clear existing data in local database
+            var existingEmployees = await _db.Employees.ToListAsync();
             _db.Employees.RemoveRange(existingEmployees);
             await _db.SaveChangesAsync();
 
             var existingDepartments = await _db.Departments.ToListAsync();
             _db.Departments.RemoveRange(existingDepartments);
             await _db.SaveChangesAsync();
+
+            // Find the Employee role ID
+            var employeeRole = await _db.AppRoles.FirstOrDefaultAsync(r => r.Name == "Employee");
+            var roleId = employeeRole?.Id ?? 2;
 
             // Import data
             var departmentCache = new Dictionary<string, Department>(StringComparer.OrdinalIgnoreCase);
@@ -327,13 +330,23 @@ public class SettingsController : ControllerBase
                     departmentCache[deptName] = deptEntity;
                 }
 
+                var emailName = parsed.FullName.Replace(" ", "").Replace("'", "").ToLowerInvariant();
+                var email = $"{emailName}_{parsed.Id}@5yinc.com";
+
                 var empEntity = new Employee
                 {
                     FullName = parsed.FullName,
                     Title = parsed.Title,
                     Company = parsed.Company,
                     AvatarUrl = parsed.AvatarUrl,
-                    Department = deptEntity
+                    APPEmail = email,
+                    Email = email,
+                    NormalizedEmail = email.ToUpperInvariant(),
+                    UserName = email,
+                    NormalizedUserName = email.ToUpperInvariant(),
+                    SecurityStamp = Guid.NewGuid().ToString(),
+                    EmailConfirmed = true,
+                    APPRoleId = roleId
                 };
 
                 _db.Employees.Add(empEntity);
@@ -343,14 +356,36 @@ public class SettingsController : ControllerBase
             // Save once so EF generates new database IDs for departments and employees
             await _db.SaveChangesAsync();
 
-            // Loop again to link managers
+            // Link employees to their departments via EmpDepartments
+            foreach (var parsed in parsedEmployees)
+            {
+                if (kekaIdToEntityMap.TryGetValue(parsed.Id, out var empEntity))
+                {
+                    var deptName = parsed.Department?.Name ?? "Default";
+                    var deptEntity = departmentCache[deptName];
+
+                    _db.EmpDepartments.Add(new EmpDepartment
+                    {
+                        EmployeeId = empEntity.Id,
+                        DepartmentId = deptEntity.Id
+                    });
+                }
+            }
+            await _db.SaveChangesAsync();
+
+            // Loop again to link managers via OrgReporting
             var updatedCount = 0;
             foreach (var parsed in parsedEmployees)
             {
                 if (parsed.ManagerId.HasValue && kekaIdToEntityMap.TryGetValue(parsed.ManagerId.Value, out var managerEntity))
                 {
                     var empEntity = kekaIdToEntityMap[parsed.Id];
-                    empEntity.ManagerId = managerEntity.Id; // Use newly generated database ID
+                    _db.OrgReportings.Add(new OrgReporting
+                    {
+                        EmployeeId = empEntity.Id,
+                        ManagerId = managerEntity.Id,
+                        ReportingType = "Direct"
+                    });
                     updatedCount++;
                 }
             }

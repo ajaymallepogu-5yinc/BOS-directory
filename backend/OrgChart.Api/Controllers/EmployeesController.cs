@@ -40,7 +40,7 @@ public class EmployeesController : ControllerBase
             AvatarUrl = e.AvatarUrl,
             ManagerId = e.ManagerId,
             ManagerName = e.ManagerId.HasValue && lookup.TryGetValue(e.ManagerId.Value, out var name) ? name : null,
-            DepartmentId = e.DepartmentId,
+            DepartmentId = e.DepartmentId ?? 0,
             Department = e.Department?.Name ?? ""
         }).ToList();
 
@@ -69,7 +69,7 @@ public class EmployeesController : ControllerBase
             Company = e.Company,
             AvatarUrl = e.AvatarUrl,
             ManagerId = e.ManagerId,
-            DepartmentId = e.DepartmentId,
+            DepartmentId = e.DepartmentId ?? 0,
             Department = e.Department?.Name ?? ""
         });
     }
@@ -144,14 +144,13 @@ public class EmployeesController : ControllerBase
             _db.OrgReportings.RemoveRange(existingReportings);
             await _db.SaveChangesAsync();
 
-            // Clear existing employees and departments
-            var existingEmployees = await _db.Employees.ToListAsync();
-            foreach (var emp in existingEmployees)
-            {
-                emp.ManagerId = null;
-            }
+            // Clear existing EmpDepartments
+            var existingEmpDepts = await _db.EmpDepartments.ToListAsync();
+            _db.EmpDepartments.RemoveRange(existingEmpDepts);
             await _db.SaveChangesAsync();
 
+            // Clear existing employees and departments
+            var existingEmployees = await _db.Employees.ToListAsync();
             _db.Employees.RemoveRange(existingEmployees);
             await _db.SaveChangesAsync();
 
@@ -180,7 +179,11 @@ public class EmployeesController : ControllerBase
             }
             await _db.SaveChangesAsync();
 
-            // Loop 2: Add employees (without setting ManagerId yet)
+            // Find the Employee role ID
+            var employeeRole = await _db.AppRoles.FirstOrDefaultAsync(r => r.Name == "Employee");
+            var roleId = employeeRole?.Id ?? 2;
+
+            // Loop 2: Add employees (without setting OrgReporting yet)
             var stringIdToEmployeeMap = new Dictionary<string, Employee>(StringComparer.OrdinalIgnoreCase);
             
             foreach (var item in dto.Employees)
@@ -188,13 +191,23 @@ public class EmployeesController : ControllerBase
                 var deptName = string.IsNullOrWhiteSpace(item.DepartmentName) ? "Default" : item.DepartmentName;
                 var deptEntity = departmentCache[deptName];
 
+                var emailName = item.FullName.Replace(" ", "").Replace("'", "").ToLowerInvariant();
+                var email = $"{emailName}_{item.Id.ToLowerInvariant()}@5yinc.com";
+
                 var empEntity = new Employee
                 {
                     FullName = item.FullName,
                     Title = item.Title,
                     Company = item.Company,
                     AvatarUrl = item.AvatarUrl,
-                    DepartmentId = deptEntity.Id
+                    APPEmail = email,
+                    Email = email,
+                    NormalizedEmail = email.ToUpperInvariant(),
+                    UserName = email,
+                    NormalizedUserName = email.ToUpperInvariant(),
+                    SecurityStamp = Guid.NewGuid().ToString(),
+                    EmailConfirmed = true,
+                    APPRoleId = roleId
                 };
 
                 _db.Employees.Add(empEntity);
@@ -202,7 +215,24 @@ public class EmployeesController : ControllerBase
             }
             await _db.SaveChangesAsync();
 
-            // Loop 3: Resolve Manager relationships using original string IDs or Full Names
+            // Link employees to their departments via EmpDepartments
+            foreach (var item in dto.Employees)
+            {
+                if (stringIdToEmployeeMap.TryGetValue(item.Id, out var empEntity))
+                {
+                    var deptName = string.IsNullOrWhiteSpace(item.DepartmentName) ? "Default" : item.DepartmentName;
+                    var deptEntity = departmentCache[deptName];
+
+                    _db.EmpDepartments.Add(new EmpDepartment
+                    {
+                        EmployeeId = empEntity.Id,
+                        DepartmentId = deptEntity.Id
+                    });
+                }
+            }
+            await _db.SaveChangesAsync();
+
+            // Loop 3: Resolve Manager relationships using OrgReporting
             var fullNameToEmployeeMap = new Dictionary<string, Employee>(StringComparer.OrdinalIgnoreCase);
             foreach (var emp in stringIdToEmployeeMap.Values)
             {
@@ -215,13 +245,24 @@ public class EmployeesController : ControllerBase
                 {
                     if (stringIdToEmployeeMap.TryGetValue(item.Id, out var employeeEntity))
                     {
-                        if (stringIdToEmployeeMap.TryGetValue(item.ManagerId, out var managerEntity))
+                        Employee? managerEntity = null;
+                        if (stringIdToEmployeeMap.TryGetValue(item.ManagerId, out var matchedManager))
                         {
-                            employeeEntity.ManagerId = managerEntity.Id;
+                            managerEntity = matchedManager;
                         }
                         else if (fullNameToEmployeeMap.TryGetValue(item.ManagerId, out var managerByName))
                         {
-                            employeeEntity.ManagerId = managerByName.Id;
+                            managerEntity = managerByName;
+                        }
+
+                        if (managerEntity != null)
+                        {
+                            _db.OrgReportings.Add(new OrgReporting
+                            {
+                                EmployeeId = employeeEntity.Id,
+                                ManagerId = managerEntity.Id,
+                                ReportingType = "Direct"
+                            });
                         }
                     }
                 }
