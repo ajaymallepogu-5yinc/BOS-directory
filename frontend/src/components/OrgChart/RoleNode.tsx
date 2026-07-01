@@ -70,7 +70,7 @@ const RoleNode: React.FC<RoleNodeProps> = ({ data }) => {
         {data.employees.length > 0 ? (
           <div className="space-y-1.5 max-h-[110px] overflow-y-auto nowheel nodrag scrollbar-none select-none">
             {data.employees.map((emp) => {
-              const isMe = emp.email?.toLowerCase() === data.loggedInEmail?.toLowerCase();
+              const isMe = emp.appEmail?.toLowerCase() === data.loggedInEmail?.toLowerCase();
               return (
                 <div key={emp.id} className="flex items-center gap-2 bg-ink-50/50 rounded-lg p-1.5 border border-ink-100/50">
                   {emp.avatarUrl ? (
@@ -102,7 +102,7 @@ const RoleNode: React.FC<RoleNodeProps> = ({ data }) => {
                       )}
                     </div>
                     <p className="text-[8px] font-semibold text-ink-400 truncate mt-0.5 leading-none">
-                      {emp.email || `${emp.fullName.toLowerCase().replace(/\s+/g, "")}@company.com`}
+                      {emp.appEmail || `${emp.fullName.toLowerCase().replace(/\s+/g, "")}@company.com`}
                     </p>
                   </div>
                 </div>

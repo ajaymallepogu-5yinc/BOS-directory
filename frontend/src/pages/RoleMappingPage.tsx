@@ -248,7 +248,7 @@ function RoleMappingInner() {
         const techTrack = trackList.find((t) => t.trackName === "Technology");
         if (techTrack) {
           setTechLevels(techTrack.levels);
-          const currentUser = empList.find(e => e.email?.toLowerCase() === LOGGED_IN_EMAIL);
+          const currentUser = empList.find(e => e.appEmail?.toLowerCase() === LOGGED_IN_EMAIL);
           if (currentUser) {
             const track = resolveTrack(currentUser.title);
             const levelVal = resolveLevel(currentUser.title, track);

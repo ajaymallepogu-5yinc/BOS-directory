@@ -15,6 +15,12 @@ public class CreateEmployeeDto
 
     public string? AvatarUrl { get; set; }
 
+    [Required, EmailAddress, MaxLength(256)]
+    public string APPEmail { get; set; } = string.Empty;
+
+    [EmailAddress, MaxLength(256)]
+    public string? HRMSEmail { get; set; }
+
     /// <summary>Null means "this person is the top of the org" (the CEO).</summary>
     public int? ManagerId { get; set; }
 

@@ -42,7 +42,8 @@ public class EmployeesController : ControllerBase
             ManagerName = e.ManagerId.HasValue && lookup.TryGetValue(e.ManagerId.Value, out var name) ? name : null,
             DepartmentId = e.DepartmentId ?? 0,
             Department = e.Department?.Name ?? "",
-            Email = e.APPEmail
+            AppEmail = e.APPEmail,
+            HrmsEmail = e.HRMSEmail
         }).ToList();
 
         return Ok(result);
@@ -71,7 +72,9 @@ public class EmployeesController : ControllerBase
             AvatarUrl = e.AvatarUrl,
             ManagerId = e.ManagerId,
             DepartmentId = e.DepartmentId ?? 0,
-            Department = e.Department?.Name ?? ""
+            Department = e.Department?.Name ?? "",
+            AppEmail = e.APPEmail,
+            HrmsEmail = e.HRMSEmail
         });
     }
 
@@ -88,11 +91,29 @@ public class EmployeesController : ControllerBase
             Company = dto.Company,
             AvatarUrl = dto.AvatarUrl,
             ManagerId = dto.ManagerId,
-            DepartmentId = dto.DepartmentId
+            DepartmentId = dto.DepartmentId,
+            APPEmail = dto.APPEmail,
+            HRMSEmail = dto.HRMSEmail,
+            UserName = dto.APPEmail,
+            Email = dto.APPEmail,
+            NormalizedEmail = dto.APPEmail.ToUpperInvariant(),
+            NormalizedUserName = dto.APPEmail.ToUpperInvariant()
         };
 
         var created = await _employees.AddAsync(entity);
-        return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
+        return CreatedAtAction(nameof(GetById), new { id = created.Id }, new EmployeeDto
+        {
+            Id = created.Id,
+            FullName = created.FullName,
+            Title = created.Title,
+            Company = created.Company,
+            AvatarUrl = created.AvatarUrl,
+            ManagerId = created.ManagerId,
+            DepartmentId = created.DepartmentId ?? 0,
+            Department = created.Department?.Name ?? "",
+            AppEmail = created.APPEmail,
+            HrmsEmail = created.HRMSEmail
+        });
     }
 
     [HttpPut("{id:int}")]
@@ -111,7 +132,9 @@ public class EmployeesController : ControllerBase
             Company = dto.Company,
             AvatarUrl = dto.AvatarUrl,
             ManagerId = dto.ManagerId,
-            DepartmentId = dto.DepartmentId
+            DepartmentId = dto.DepartmentId,
+            APPEmail = dto.APPEmail,
+            HRMSEmail = dto.HRMSEmail
         };
 
         var updated = await _employees.UpdateAsync(id, entity);

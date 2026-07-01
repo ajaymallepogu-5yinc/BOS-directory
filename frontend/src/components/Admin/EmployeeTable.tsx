@@ -14,6 +14,7 @@ export default function EmployeeTable({ employees, onEdit, onDelete, readOnly }:
         <thead className="bg-ink-50 text-xs uppercase tracking-wide text-ink-400">
           <tr>
             <th className="px-4 py-3">Name</th>
+            <th className="px-4 py-3">Email</th>
             <th className="px-4 py-3">Title</th>
             <th className="px-4 py-3">Department</th>
             <th className="px-4 py-3">Reports to</th>
@@ -24,6 +25,7 @@ export default function EmployeeTable({ employees, onEdit, onDelete, readOnly }:
           {employees.map((emp) => (
             <tr key={emp.id} className="hover:bg-ink-50/60">
               <td className="px-4 py-3 font-medium text-ink-900">{emp.fullName}</td>
+              <td className="px-4 py-3 text-ink-600 font-mono text-xs">{emp.appEmail}</td>
               <td className="px-4 py-3 text-ink-600">{emp.title}</td>
               <td className="px-4 py-3 text-ink-600">{emp.department}</td>
               <td className="px-4 py-3 text-ink-400">{emp.managerName ?? "—"}</td>

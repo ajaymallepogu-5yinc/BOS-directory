@@ -17,6 +17,8 @@ const emptyForm: EmployeeFormValues = {
   avatarUrl: "",
   managerId: null,
   departmentId: null,
+  appEmail: "",
+  hrmsEmail: "",
 };
 
 export default function EmployeeFormDrawer({
@@ -39,6 +41,8 @@ export default function EmployeeFormDrawer({
         avatarUrl: initial.avatarUrl ?? "",
         managerId: initial.managerId ?? null,
         departmentId: initial.departmentId,
+        appEmail: initial.appEmail ?? "",
+        hrmsEmail: initial.hrmsEmail ?? "",
       });
     } else {
       setValues(emptyForm);
@@ -94,6 +98,27 @@ export default function EmployeeFormDrawer({
               required
               value={values.company}
               onChange={(e) => setValues((v) => ({ ...v, company: e.target.value }))}
+              className="input"
+            />
+          </Field>
+
+          <Field label="App Email (Authentication)">
+            <input
+              required
+              type="email"
+              placeholder="e.g. employee@5yinc.com"
+              value={values.appEmail}
+              onChange={(e) => setValues((v) => ({ ...v, appEmail: e.target.value }))}
+              className="input"
+            />
+          </Field>
+
+          <Field label="HRMS Email (Optional)">
+            <input
+              type="email"
+              placeholder="e.g. employee@keka.com"
+              value={values.hrmsEmail}
+              onChange={(e) => setValues((v) => ({ ...v, hrmsEmail: e.target.value }))}
               className="input"
             />
           </Field>
