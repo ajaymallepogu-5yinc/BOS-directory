@@ -225,9 +225,10 @@ public class EmployeesController : ControllerBase
             // Find the Employee role ID in standard Identity roles
             var employeeRole = await _db.Roles.FirstOrDefaultAsync(r => r.Name == "Employee");
 
-            // Loop 2: Add employees (without setting OrgReporting yet)
             var stringIdToEmployeeMap = new Dictionary<string, Employee>(StringComparer.OrdinalIgnoreCase);
-            
+            int importedCount = 0;
+            int skippedCount = 0;
+
             foreach (var item in dto.Employees)
             {
                 var deptName = string.IsNullOrWhiteSpace(item.DepartmentName) ? "Default" : item.DepartmentName;
@@ -236,8 +237,8 @@ public class EmployeesController : ControllerBase
                 string email = item.APPEmail;
                 if (string.IsNullOrWhiteSpace(email))
                 {
-                    var emailName = item.FullName.Replace(" ", "").Replace("'", "").ToLowerInvariant();
-                    email = $"{emailName}_{item.Id.ToLowerInvariant()}@5yinc.com";
+                    skippedCount++;
+                    continue; // Skip employee if they do not have a valid App Email
                 }
 
                 var empEntity = new Employee
@@ -258,6 +259,7 @@ public class EmployeesController : ControllerBase
 
                 _db.Employees.Add(empEntity);
                 stringIdToEmployeeMap[item.Id] = empEntity;
+                importedCount++;
             }
             await _db.SaveChangesAsync();
 
@@ -331,8 +333,10 @@ public class EmployeesController : ControllerBase
             return Ok(new BulkImportResultDto
             {
                 Success = true,
-                Message = $"Successfully imported {dto.Employees.Count} employees and {departmentCache.Count} departments from your CSV directory!",
-                ImportedCount = dto.Employees.Count
+                Message = skippedCount > 0 
+                    ? $"Successfully imported {importedCount} employees ({skippedCount} skipped due to missing App Email) and {departmentCache.Count} departments!"
+                    : $"Successfully imported {importedCount} employees and {departmentCache.Count} departments!",
+                ImportedCount = importedCount
             });
         }
         catch (Exception ex)

@@ -159,7 +159,7 @@ public class HrPortalEmployeeRepository : IEmployeeRepository
                 ? deptColorEl.Value.GetString() ?? "#64748B" 
                 : "#64748B";
 
-            // 10. Parse App Email (Optional - fallback to auto-generated)
+            // 10. Parse App Email (Required - skip if missing)
             var appEmailEl = GetElementByPath(item, config.APPEmailField);
             string appEmail = appEmailEl.HasValue && appEmailEl.Value.ValueKind == JsonValueKind.String
                 ? appEmailEl.Value.GetString() ?? ""
@@ -167,8 +167,7 @@ public class HrPortalEmployeeRepository : IEmployeeRepository
 
             if (string.IsNullOrWhiteSpace(appEmail))
             {
-                var emailName = fullName.Replace(" ", "").Replace("'", "").ToLowerInvariant();
-                appEmail = $"{emailName}_{id}@5yinc.com";
+                continue; // Skip employee if they do not have a valid App Email
             }
 
             // 11. Parse HRMS Email (Optional)
