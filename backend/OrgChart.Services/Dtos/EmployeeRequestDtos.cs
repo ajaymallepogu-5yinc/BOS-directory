@@ -25,3 +25,8 @@ public class CreateEmployeeDto
 public class UpdateEmployeeDto : CreateEmployeeDto
 {
 }
+
+public class UpdateManagerDto
+{
+    public int? ManagerId { get; set; }
+}

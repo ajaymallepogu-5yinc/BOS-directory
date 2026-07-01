@@ -43,11 +43,20 @@ export async function updateEmployee(id: number, values: EmployeeFormValues): Pr
   await apiClient.put(`/employees/${id}`, values);
 }
 
+export async function updateEmployeeManager(id: number, managerId: number | null): Promise<void> {
+  await apiClient.put(`/employees/${id}/manager`, { managerId });
+}
+
 export async function deleteEmployee(id: number): Promise<void> {
   await apiClient.delete(`/employees/${id}`);
 }
 
 export async function importBulkEmployees(employees: BulkImportEmployee[]): Promise<BulkImportResult> {
   const { data } = await apiClient.post<BulkImportResult>("/employees/import-bulk", { employees });
+  return data;
+}
+
+export async function fetchFunctionalTree(): Promise<OrgTreeNode[]> {
+  const { data } = await apiClient.get<OrgTreeNode[]>("/tree/company?type=Functional");
   return data;
 }

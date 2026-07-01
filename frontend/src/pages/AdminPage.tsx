@@ -9,14 +9,13 @@ import {
   importBulkEmployees,
 } from "../api/employeeApi";
 import { fetchSettings, saveSettings, testSettings, importSettings } from "../api/settingsApi";
-import { testJiraConnection, importJiraData } from "../api/jiraApi";
-import type { Department, Employee, EmployeeFormValues, ManagerOption, TestConnectionResult, TestJiraConnectionResult, BulkImportEmployee } from "../api/types";
+import type { Department, Employee, EmployeeFormValues, ManagerOption, TestConnectionResult, BulkImportEmployee } from "../api/types";
 import EmployeeFormDrawer from "../components/Admin/EmployeeFormDrawer";
 import EmployeeTable from "../components/Admin/EmployeeTable";
 
 export default function AdminPage() {
   // Navigation & General state
-  const [activeTab, setActiveTab] = useState<"employees" | "datasource" | "jira">("employees");
+  const [activeTab, setActiveTab] = useState<"employees" | "datasource">("employees");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [managers, setManagers] = useState<ManagerOption[]>([]);
@@ -29,13 +28,7 @@ export default function AdminPage() {
   const [authHeaderName, setAuthHeaderName] = useState<string>("");
   const [authHeaderValue, setAuthHeaderValue] = useState<string>("");
 
-  // Jira Settings State
-  const [jiraApiUrl, setJiraApiUrl] = useState<string>("");
-  const [jiraUserEmail, setJiraUserEmail] = useState<string>("");
-  const [jiraApiToken, setJiraApiToken] = useState<string>("");
-  const [jiraTesting, setJiraTesting] = useState(false);
-  const [jiraTestResult, setJiraTestResult] = useState<TestJiraConnectionResult | null>(null);
-  const [jiraSaving, setJiraSaving] = useState(false);
+
 
   // Mapping keys state
   const [idField, setIdField] = useState<string>("id");
@@ -135,9 +128,7 @@ export default function AdminPage() {
       setApiUrl(s.hrPortalApiUrl ?? "");
       setAuthHeaderName(s.hrPortalApiAuthHeaderName ?? "");
       setAuthHeaderValue(s.hrPortalApiAuthHeaderValue ?? "");
-      setJiraApiUrl(s.jiraApiUrl ?? "");
-      setJiraUserEmail(s.jiraUserEmail ?? "");
-      setJiraApiToken(s.jiraApiToken ?? "");
+
       setIdField(s.idField);
       setFullNameField(s.fullNameField);
       setTitleField(s.titleField);
@@ -254,9 +245,7 @@ export default function AdminPage() {
         hrPortalApiUrl: apiUrl,
         hrPortalApiAuthHeaderName: authHeaderName,
         hrPortalApiAuthHeaderValue: authHeaderValue,
-        jiraApiUrl,
-        jiraUserEmail,
-        jiraApiToken,
+
         idField,
         fullNameField,
         titleField,
@@ -434,9 +423,7 @@ export default function AdminPage() {
         hrPortalApiUrl: apiUrl,
         hrPortalApiAuthHeaderName: authHeaderName,
         hrPortalApiAuthHeaderValue: authHeaderValue,
-        jiraApiUrl,
-        jiraUserEmail,
-        jiraApiToken,
+
         idField,
         fullNameField,
         titleField,
@@ -456,96 +443,7 @@ export default function AdminPage() {
     }
   }
 
-  // Jira Handler Methods
-  const handleLoadJiraMockPreset = () => {
-    setJiraApiUrl("http://localhost:5226/api/mock-jira/data");
-    setJiraUserEmail("admin@company.com");
-    setJiraApiToken("mock-jira-token-abcde");
-  };
 
-  const handleTestJiraConnection = async () => {
-    setJiraTesting(true);
-    setJiraTestResult(null);
-    try {
-      const res = await testJiraConnection({
-        apiUrl: jiraApiUrl,
-        userEmail: jiraUserEmail,
-        apiToken: jiraApiToken
-      });
-      setJiraTestResult(res);
-    } catch (err: any) {
-      setJiraTestResult({
-        success: false,
-        message: err.message ?? "Jira connection request failed.",
-        projectCount: 0,
-        sprintCount: 0,
-        issueCount: 0,
-        sampleIssues: [],
-        validationErrors: ["Could not send request to Jira API server. Verify network connection and configuration."]
-      });
-    } finally {
-      setJiraTesting(false);
-    }
-  };
-
-  const handleSaveJiraConfigOnly = async () => {
-    setJiraSaving(true);
-    setSettingsSuccessMessage(null);
-    try {
-      await saveSettings({
-        mode: "Local",
-        hrPortalApiUrl: apiUrl,
-        hrPortalApiAuthHeaderName: authHeaderName,
-        hrPortalApiAuthHeaderValue: authHeaderValue,
-        jiraApiUrl,
-        jiraUserEmail,
-        jiraApiToken,
-        idField,
-        fullNameField,
-        titleField,
-        companyField,
-        avatarUrlField,
-        managerIdField,
-        departmentIdField,
-        departmentNameField,
-        departmentColorField
-      });
-      setSettingsSuccessMessage("Jira configuration saved successfully!");
-      setTimeout(() => setSettingsSuccessMessage(null), 3000);
-    } catch (err: any) {
-      alert("Failed to save Jira configuration: " + (err.message ?? "unknown error"));
-    } finally {
-      setJiraSaving(false);
-    }
-  };
-
-  const handleImportJiraData = async () => {
-    const confirmImport = confirm(
-      "WARNING: Importing from Jira will clear ALL local Jira projects, sprints, and issues, and replace them with the imported records.\n\nThis action cannot be undone. Do you want to proceed?"
-    );
-    if (!confirmImport) return;
-
-    setJiraSaving(true);
-    try {
-      const res = await importJiraData({
-        apiUrl: jiraApiUrl,
-        userEmail: jiraUserEmail,
-        apiToken: jiraApiToken
-      });
-
-      if (res.success) {
-        alert(res.message);
-        setSettingsSuccessMessage("Jira data imported successfully!");
-        setTimeout(() => setSettingsSuccessMessage(null), 3000);
-      } else {
-        alert("Import failed: " + res.message);
-      }
-    } catch (err: any) {
-      alert("Import request failed: " + (err.message ?? "unknown error"));
-    } finally {
-      setJiraSaving(false);
-    }
-  };
 
   return (
     <div className="flex h-full flex-col overflow-y-auto px-6 py-6 bg-ink-50/30">
@@ -590,16 +488,7 @@ export default function AdminPage() {
         >
           Fetch from Keka
         </button>
-        <button
-          onClick={() => setActiveTab("jira")}
-          className={`px-4 py-2 text-sm font-semibold border-b-2 transition-all ${
-            activeTab === "jira"
-              ? "border-brand text-brand"
-              : "border-transparent text-ink-500 hover:text-ink-700"
-          }`}
-        >
-          Fetch from Jira
-        </button>
+
       </div>
 
       {/* Tab 1: Employees List (Always fully editable) */}
@@ -973,165 +862,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Tab 3: Jira Data Import settings */}
-      {activeTab === "jira" && (
-        <div className="max-w-4xl flex flex-col gap-6">
-          {settingsSuccessMessage && (
-            <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-xs font-semibold text-green-800">
-              ✓ {settingsSuccessMessage}
-            </div>
-          )}
 
-          {/* API Credentials Card */}
-          <div className="bg-white border border-ink-200 rounded-xl p-6 shadow-sm flex flex-col gap-5">
-            <div className="flex justify-between items-center">
-              <div>
-                <h3 className="font-display font-bold text-sm text-ink-900">Configure Jira Integration</h3>
-                <p className="text-[11px] text-ink-400 mt-0.5">Configure your Jira Agile endpoint URL and Atlassian credentials to fetch projects and issues.</p>
-              </div>
-              <button
-                type="button"
-                onClick={handleLoadJiraMockPreset}
-                className="rounded-lg border border-brand/20 bg-brand/5 px-3 py-1.5 text-xs font-semibold text-brand hover:bg-brand/10 transition-colors"
-              >
-                Load Mock Preset
-              </button>
-            </div>
-
-            {/* Endpoint configuration */}
-            <div className="grid grid-cols-1 gap-4">
-              <div>
-                <label className="text-[11px] font-semibold text-ink-500">Jira API Endpoint URL</label>
-                <input
-                  type="text"
-                  value={jiraApiUrl}
-                  onChange={(e) => setJiraApiUrl(e.target.value)}
-                  placeholder="https://your-domain.atlassian.net/rest/agile/1.0/board"
-                  className="mt-1 block w-full rounded-lg border border-ink-300 px-3 py-2 text-xs text-ink-900 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-mono"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[11px] font-semibold text-ink-500">Atlassian User Email</label>
-                  <input
-                    type="email"
-                    value={jiraUserEmail}
-                    onChange={(e) => setJiraUserEmail(e.target.value)}
-                    placeholder="user@company.com"
-                    className="mt-1 block w-full rounded-lg border border-ink-300 px-3 py-2 text-xs text-ink-900 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] font-semibold text-ink-500">Atlassian API Token (Not password)</label>
-                  <input
-                    type="password"
-                    value={jiraApiToken}
-                    onChange={(e) => setJiraApiToken(e.target.value)}
-                    placeholder="••••••••••••••••••••"
-                    className="mt-1 block w-full rounded-lg border border-ink-300 px-3 py-2 text-xs text-ink-900 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-mono"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Action buttons */}
-            <div className="border-t border-ink-100 pt-4 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={handleSaveJiraConfigOnly}
-                disabled={jiraSaving || jiraTesting}
-                className="px-4 py-2 border border-ink-300 rounded-lg text-xs font-semibold text-ink-700 hover:bg-ink-50 transition-colors disabled:opacity-50"
-              >
-                Save Configuration Only
-              </button>
-              <button
-                type="button"
-                onClick={handleTestJiraConnection}
-                disabled={jiraTesting}
-                className="px-4 py-2 border border-ink-300 rounded-lg text-xs font-semibold text-ink-700 hover:bg-ink-50 transition-colors disabled:opacity-50 bg-ink-50"
-              >
-                {jiraTesting ? "Testing..." : "Test Connection & Query"}
-              </button>
-            </div>
-          </div>
-
-          {/* Test connection results output */}
-          {jiraTestResult && (
-            <div className={`border rounded-xl p-6 shadow-sm ${
-              jiraTestResult.success ? "bg-green-50/20 border-green-200" : "bg-red-50/20 border-red-200"
-            }`}>
-              <h4 className={`font-display font-bold text-xs mb-3 ${
-                jiraTestResult.success ? "text-green-800" : "text-red-800"
-              }`}>
-                {jiraTestResult.success ? "✓ Test Connection Succeeded" : "✗ Test Connection Failed"}
-              </h4>
-              <p className="text-[11px] text-ink-700 mb-4">{jiraTestResult.message}</p>
-
-              {/* Validation warnings list */}
-              {jiraTestResult.validationErrors.length > 0 && (
-                <div className="mb-4 bg-white border border-amber-200 p-3 rounded-lg flex flex-col gap-1.5">
-                  <span className="text-[10px] font-bold text-amber-800">Errors & Warnings:</span>
-                  {jiraTestResult.validationErrors.map((err, i) => (
-                    <p key={i} className="text-[10px] text-amber-700 font-medium">⚠️ {err}</p>
-                  ))}
-                </div>
-              )}
-
-              {/* Summary of parsed objects */}
-              {jiraTestResult.success && (
-                <div className="mb-4 text-xs text-ink-600 flex flex-col gap-1">
-                  <p>Projects Parsed: <span className="font-bold text-ink-800">{jiraTestResult.projectCount}</span></p>
-                  <p>Active Sprints Parsed: <span className="font-bold text-ink-800">{jiraTestResult.sprintCount}</span></p>
-                  <p>Total Issues Parsed: <span className="font-bold text-ink-800">{jiraTestResult.issueCount}</span></p>
-                </div>
-              )}
-
-              {/* Preview data table */}
-              {jiraTestResult.sampleIssues.length > 0 && (
-                <div className="bg-white border border-ink-200 rounded-lg overflow-hidden">
-                  <div className="bg-ink-50/50 px-3 py-2 border-b border-ink-200">
-                    <span className="text-[10px] font-semibold text-ink-600">Sample Issues Found</span>
-                  </div>
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-ink-50/30 text-[10px] text-ink-400 border-b border-ink-200 font-semibold">
-                        <th className="px-3 py-1.5">Key</th>
-                        <th className="px-3 py-1.5">Summary</th>
-                        <th className="px-3 py-1.5">Assignee</th>
-                        <th className="px-3 py-1.5">Priority</th>
-                        <th className="px-3 py-1.5">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-ink-100 text-[10px] text-ink-700">
-                      {jiraTestResult.sampleIssues.map((issue) => (
-                        <tr key={issue.key}>
-                          <td className="px-3 py-1.5 font-mono font-semibold text-brand">{issue.key}</td>
-                          <td className="px-3 py-1.5 font-medium">{issue.summary}</td>
-                          <td className="px-3 py-1.5">{issue.assignee || "Unassigned"}</td>
-                          <td className="px-3 py-1.5 font-medium">{issue.priority}</td>
-                          <td className="px-3 py-1.5">{issue.status}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Form Actions (Save settings & Import data) */}
-          <div className="flex justify-end pt-2 border-t border-ink-200">
-            <button
-              onClick={handleImportJiraData}
-              disabled={jiraSaving || !jiraApiUrl}
-              className="btn-primary flex items-center gap-2"
-            >
-              {jiraSaving ? "Importing Jira Data..." : "Import into Local Database"}
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

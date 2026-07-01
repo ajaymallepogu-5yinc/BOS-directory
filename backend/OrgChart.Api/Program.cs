@@ -117,51 +117,49 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     
-    if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+    bool tableExists = false;
+    try
     {
-        // For PostgreSQL on Supabase, the database already exists, so EnsureCreated() skips table creation.
-        // We check if the Employees table exists, and if not, we generate and execute the creation script.
-        bool tableExists = false;
-        try
+        var conn = db.Database.GetDbConnection();
+        using (var cmd = conn.CreateCommand())
         {
-            var conn = db.Database.GetDbConnection();
-            using (var cmd = conn.CreateCommand())
+            if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+            if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
             {
-                if (conn.State != System.Data.ConnectionState.Open) conn.Open();
-                cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'AppRoles')";
+                cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'AspNetUsers')";
                 tableExists = Convert.ToBoolean(cmd.ExecuteScalar());
             }
-        }
-        catch
-        {
-            tableExists = false;
-        }
-
-        if (!tableExists)
-        {
-            try
+            else
             {
-                db.Database.ExecuteSqlRaw(@"
-                    DROP TABLE IF EXISTS ""Employees"", ""Departments"", ""DataSourceConfigs"", ""JiraProjects"", ""JiraSprints"", ""JiraIssues"", ""AppRoles"", ""OrgReportings"", ""EmpDepartments"", ""AspNetUsers"", ""AspNetRoles"", ""AspNetUserClaims"", ""AspNetUserLogins"", ""AspNetUserRoles"", ""AspNetUserTokens"", ""AspNetRoleClaims"" CASCADE;
-                ");
+                cmd.CommandText = "SELECT OBJECT_ID(N'[AspNetUsers]', N'U')";
+                var res = cmd.ExecuteScalar();
+                tableExists = res != DBNull.Value && res != null;
             }
-            catch { }
+        }
+    }
+    catch
+    {
+        tableExists = false;
+    }
 
+    if (!tableExists)
+    {
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
             var sql = db.Database.GenerateCreateScript();
             db.Database.ExecuteSqlRaw(sql);
         }
-    }
-    else
-    {
-        db.Database.EnsureCreated();
+        else
+        {
+            db.Database.EnsureDeleted();
+            db.Database.EnsureCreated();
+        }
     }
 
     // Ensure system settings schema and defaults are configured
     SeedData.EnsureDataSourceConfigTableExists(db);
-    SeedData.EnsureJiraTablesExist(db);
     SeedData.SeedDefaultSettings(db);
     SeedData.SeedHrDummyTable(db);
-    SeedData.SeedDefaultJiraData(db);
 
     var config = db.DataSourceConfigs.FirstOrDefault();
     if (config == null || config.Mode == "Local")

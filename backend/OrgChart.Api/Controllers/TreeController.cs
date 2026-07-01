@@ -19,17 +19,17 @@ public class TreeController : ControllerBase
 
     /// <summary>GET /api/tree/company - the whole company, CEO down to individual contributors.</summary>
     [HttpGet("company")]
-    public async Task<IActionResult> GetCompanyTree()
+    public async Task<IActionResult> GetCompanyTree([FromQuery] string type = "Direct")
     {
-        var all = await _employees.GetAllAsync();
+        var all = await _employees.GetAllAsync(type);
         return Ok(_treeBuilder.BuildCompanyTree(all));
     }
 
     /// <summary>GET /api/tree/department/3 - just one department's slice of the org.</summary>
     [HttpGet("department/{departmentId:int}")]
-    public async Task<IActionResult> GetDepartmentTree(int departmentId)
+    public async Task<IActionResult> GetDepartmentTree(int departmentId, [FromQuery] string type = "Direct")
     {
-        var all = await _employees.GetAllAsync();
+        var all = await _employees.GetAllAsync(type);
         return Ok(_treeBuilder.BuildDepartmentTree(all, departmentId));
     }
 }

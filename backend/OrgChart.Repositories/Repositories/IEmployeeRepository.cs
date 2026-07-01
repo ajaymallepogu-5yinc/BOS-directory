@@ -12,7 +12,7 @@ namespace OrgChart.Repositories;
 /// </summary>
 public interface IEmployeeRepository
 {
-    Task<List<Employee>> GetAllAsync();
+    Task<List<Employee>> GetAllAsync(string reportingType = "Direct");
     Task<Employee?> GetByIdAsync(int id);
 
     /// <summary>True for sources that support writes (Local). HR portal mode is read-only by design -

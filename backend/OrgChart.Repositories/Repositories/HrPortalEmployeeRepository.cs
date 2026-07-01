@@ -28,7 +28,7 @@ public class HrPortalEmployeeRepository : IEmployeeRepository
 
     public bool SupportsWrites => false;
 
-    public async Task<List<Employee>> GetAllAsync()
+    public async Task<List<Employee>> GetAllAsync(string reportingType = "Direct")
     {
         var config = await _db.DataSourceConfigs.FirstOrDefaultAsync()
             ?? throw new InvalidOperationException("HR Portal connection configuration not found.");

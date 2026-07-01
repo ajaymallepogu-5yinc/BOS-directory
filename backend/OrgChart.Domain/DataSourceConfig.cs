@@ -15,10 +15,7 @@ public class DataSourceConfig
 
     public string? HrPortalApiAuthHeaderValue { get; set; }
 
-    // Jira Configurations
-    public string? JiraApiUrl { get; set; }
-    public string? JiraUserEmail { get; set; }
-    public string? JiraApiToken { get; set; }
+
 
     // Mappings
     [Required, MaxLength(100)]

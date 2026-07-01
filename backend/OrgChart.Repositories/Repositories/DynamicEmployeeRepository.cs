@@ -43,10 +43,10 @@ public class DynamicEmployeeRepository : IEmployeeRepository
         }
     }
 
-    public async Task<List<Employee>> GetAllAsync()
+    public async Task<List<Employee>> GetAllAsync(string reportingType = "Direct")
     {
         var repo = await GetActiveRepoAsync();
-        return await repo.GetAllAsync();
+        return await repo.GetAllAsync(reportingType);
     }
 
     public async Task<Employee?> GetByIdAsync(int id)

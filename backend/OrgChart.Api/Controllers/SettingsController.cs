@@ -43,9 +43,7 @@ public class SettingsController : ControllerBase
             HrPortalApiUrl = config.HrPortalApiUrl,
             HrPortalApiAuthHeaderName = config.HrPortalApiAuthHeaderName,
             HrPortalApiAuthHeaderValue = config.HrPortalApiAuthHeaderValue,
-            JiraApiUrl = config.JiraApiUrl,
-            JiraUserEmail = config.JiraUserEmail,
-            JiraApiToken = config.JiraApiToken,
+
             IdField = config.IdField,
             FullNameField = config.FullNameField,
             TitleField = config.TitleField,
@@ -73,9 +71,7 @@ public class SettingsController : ControllerBase
         config.HrPortalApiUrl = dto.HrPortalApiUrl;
         config.HrPortalApiAuthHeaderName = dto.HrPortalApiAuthHeaderName;
         config.HrPortalApiAuthHeaderValue = dto.HrPortalApiAuthHeaderValue;
-        config.JiraApiUrl = dto.JiraApiUrl;
-        config.JiraUserEmail = dto.JiraUserEmail;
-        config.JiraApiToken = dto.JiraApiToken;
+
         config.IdField = dto.IdField;
         config.FullNameField = dto.FullNameField;
         config.TitleField = dto.TitleField;
@@ -306,9 +302,8 @@ public class SettingsController : ControllerBase
             _db.Departments.RemoveRange(existingDepartments);
             await _db.SaveChangesAsync();
 
-            // Find the Employee role ID
-            var employeeRole = await _db.AppRoles.FirstOrDefaultAsync(r => r.Name == "Employee");
-            var roleId = employeeRole?.Id ?? 2;
+            // Find the Employee role ID in standard Identity roles
+            var employeeRole = await _db.Roles.FirstOrDefaultAsync(r => r.Name == "Employee");
 
             // Import data
             var departmentCache = new Dictionary<string, Department>(StringComparer.OrdinalIgnoreCase);
@@ -345,8 +340,7 @@ public class SettingsController : ControllerBase
                     UserName = email,
                     NormalizedUserName = email.ToUpperInvariant(),
                     SecurityStamp = Guid.NewGuid().ToString(),
-                    EmailConfirmed = true,
-                    APPRoleId = roleId
+                    EmailConfirmed = true
                 };
 
                 _db.Employees.Add(empEntity);
@@ -368,6 +362,19 @@ public class SettingsController : ControllerBase
                     {
                         EmployeeId = empEntity.Id,
                         DepartmentId = deptEntity.Id
+                    });
+                }
+            }
+
+            // Link employees to standard Identity roles
+            if (employeeRole != null)
+            {
+                foreach (var empEntity in kekaIdToEntityMap.Values)
+                {
+                    _db.UserRoles.Add(new Microsoft.AspNetCore.Identity.IdentityUserRole<int>
+                    {
+                        UserId = empEntity.Id,
+                        RoleId = employeeRole.Id
                     });
                 }
             }
@@ -429,9 +436,7 @@ public class SettingsDto
     public string? HrPortalApiUrl { get; set; }
     public string? HrPortalApiAuthHeaderName { get; set; }
     public string? HrPortalApiAuthHeaderValue { get; set; }
-    public string? JiraApiUrl { get; set; }
-    public string? JiraUserEmail { get; set; }
-    public string? JiraApiToken { get; set; }
+
     public string IdField { get; set; } = "id";
     public string FullNameField { get; set; } = "fullName";
     public string TitleField { get; set; } = "title";
@@ -450,9 +455,7 @@ public class UpdateSettingsDto
     public string? HrPortalApiUrl { get; set; }
     public string? HrPortalApiAuthHeaderName { get; set; }
     public string? HrPortalApiAuthHeaderValue { get; set; }
-    public string? JiraApiUrl { get; set; }
-    public string? JiraUserEmail { get; set; }
-    public string? JiraApiToken { get; set; }
+
     public string IdField { get; set; } = "id";
     public string FullNameField { get; set; } = "fullName";
     public string TitleField { get; set; } = "title";

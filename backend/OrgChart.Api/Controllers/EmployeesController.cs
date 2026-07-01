@@ -41,7 +41,8 @@ public class EmployeesController : ControllerBase
             ManagerId = e.ManagerId,
             ManagerName = e.ManagerId.HasValue && lookup.TryGetValue(e.ManagerId.Value, out var name) ? name : null,
             DepartmentId = e.DepartmentId ?? 0,
-            Department = e.Department?.Name ?? ""
+            Department = e.Department?.Name ?? "",
+            Email = e.APPEmail
         }).ToList();
 
         return Ok(result);
@@ -118,6 +119,25 @@ public class EmployeesController : ControllerBase
         return NoContent();
     }
 
+    [HttpPut("{id:int}/manager")]
+    public async Task<IActionResult> UpdateManager(int id, [FromBody] UpdateManagerDto dto)
+    {
+        if (!_employees.SupportsWrites)
+            return Conflict("Employees are sourced from the HR portal in this environment. Edit the employee there instead.");
+
+        if (dto.ManagerId == id)
+            return BadRequest("An employee cannot report to themselves.");
+
+        var existing = await _employees.GetByIdAsync(id);
+        if (existing is null) return NotFound();
+
+        existing.ManagerId = dto.ManagerId;
+
+        var updated = await _employees.UpdateAsync(id, existing);
+        if (updated is null) return NotFound();
+        return NoContent();
+    }
+
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id)
     {
@@ -179,9 +199,8 @@ public class EmployeesController : ControllerBase
             }
             await _db.SaveChangesAsync();
 
-            // Find the Employee role ID
-            var employeeRole = await _db.AppRoles.FirstOrDefaultAsync(r => r.Name == "Employee");
-            var roleId = employeeRole?.Id ?? 2;
+            // Find the Employee role ID in standard Identity roles
+            var employeeRole = await _db.Roles.FirstOrDefaultAsync(r => r.Name == "Employee");
 
             // Loop 2: Add employees (without setting OrgReporting yet)
             var stringIdToEmployeeMap = new Dictionary<string, Employee>(StringComparer.OrdinalIgnoreCase);
@@ -206,8 +225,7 @@ public class EmployeesController : ControllerBase
                     UserName = email,
                     NormalizedUserName = email.ToUpperInvariant(),
                     SecurityStamp = Guid.NewGuid().ToString(),
-                    EmailConfirmed = true,
-                    APPRoleId = roleId
+                    EmailConfirmed = true
                 };
 
                 _db.Employees.Add(empEntity);
@@ -227,6 +245,19 @@ public class EmployeesController : ControllerBase
                     {
                         EmployeeId = empEntity.Id,
                         DepartmentId = deptEntity.Id
+                    });
+                }
+            }
+
+            // Link employees to standard Identity roles
+            if (employeeRole != null)
+            {
+                foreach (var empEntity in stringIdToEmployeeMap.Values)
+                {
+                    _db.UserRoles.Add(new Microsoft.AspNetCore.Identity.IdentityUserRole<int>
+                    {
+                        UserId = empEntity.Id,
+                        RoleId = employeeRole.Id
                     });
                 }
             }

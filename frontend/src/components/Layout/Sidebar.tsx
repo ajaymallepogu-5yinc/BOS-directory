@@ -11,11 +11,10 @@ export default function Sidebar() {
   return (
     <aside className="w-52 shrink-0 flex flex-col border-r border-ink-200 bg-white h-full">
       {/* Brand logo section */}
-      <div className="flex items-center gap-2.5 px-5 py-4.5 border-b border-ink-150 h-[65px]">
-        <img src="/logo.png" alt="BOS Framework logo" className="h-7 w-7 shrink-0 object-contain rounded" />
-        <div className="min-w-0">
-          <p className="font-display text-xs font-extrabold leading-tight text-ink-900 truncate">BOS Framework</p>
-          <p className="text-[9px] leading-tight text-ink-400 truncate">Company directory</p>
+      <div className="flex items-center gap-2 px-4 py-4 border-b border-ink-150 h-[72px]">
+        <img src="/5y.webp" alt="5yinc logo" className="h-12 w-12 shrink-0 object-contain rounded" />
+        <div className="min-w-0 flex-1">
+          <p className="font-display text-xs font-black tracking-tight text-ink-900 leading-none whitespace-nowrap">Company Directory</p>
         </div>
       </div>
 
@@ -34,6 +33,14 @@ export default function Sidebar() {
           </svg>
           <span className="truncate">Department Tree</span>
         </NavLink>
+
+        <NavLink to="/role-mapping" className={linkClass}>
+          <svg className="h-5 w-5 shrink-0 text-current" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          </svg>
+          <span className="truncate">Company Careers</span>
+        </NavLink>
+
       </nav>
 
       {/* Admin Console at the bottom */}

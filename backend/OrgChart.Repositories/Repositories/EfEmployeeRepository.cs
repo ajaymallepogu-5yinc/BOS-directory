@@ -16,7 +16,7 @@ public class EfEmployeeRepository : IEmployeeRepository
 
     public bool SupportsWrites => true;
 
-    public async Task<List<Employee>> GetAllAsync()
+    public async Task<List<Employee>> GetAllAsync(string reportingType = "Direct")
     {
         var list = await _db.Employees
             .Include(e => e.EmpDepartments)
@@ -27,8 +27,8 @@ public class EfEmployeeRepository : IEmployeeRepository
 
         foreach (var emp in list)
         {
-            var directReport = reportings.FirstOrDefault(o => o.EmployeeId == emp.Id && o.ReportingType == "Direct");
-            emp.ManagerId = directReport?.ManagerId;
+            var report = reportings.FirstOrDefault(o => o.EmployeeId == emp.Id && o.ReportingType == reportingType);
+            emp.ManagerId = report?.ManagerId;
 
             var primaryDept = emp.EmpDepartments.FirstOrDefault();
             if (primaryDept != null)
@@ -80,15 +80,19 @@ public class EfEmployeeRepository : IEmployeeRepository
         employee.SecurityStamp = Guid.NewGuid().ToString();
         employee.EmailConfirmed = true;
 
-        // Default to Employee role if not set
-        if (!employee.APPRoleId.HasValue)
-        {
-            var employeeRole = await _db.AppRoles.FirstOrDefaultAsync(r => r.Name == "Employee");
-            employee.APPRoleId = employeeRole?.Id ?? 2;
-        }
-
         _db.Employees.Add(employee);
         await _db.SaveChangesAsync(); // Generates employee.Id
+
+        // Save standard Identity role link
+        var employeeRole = await _db.Roles.FirstOrDefaultAsync(r => r.Name == "Employee");
+        if (employeeRole != null)
+        {
+            _db.UserRoles.Add(new Microsoft.AspNetCore.Identity.IdentityUserRole<int>
+            {
+                UserId = employee.Id,
+                RoleId = employeeRole.Id
+            });
+        }
 
         // Save department link
         if (employee.DepartmentId.HasValue)
@@ -124,7 +128,6 @@ public class EfEmployeeRepository : IEmployeeRepository
         existing.Title = updated.Title;
         existing.Company = updated.Company;
         existing.AvatarUrl = updated.AvatarUrl;
-        existing.APPRoleId = updated.APPRoleId;
         existing.HRMSEmail = updated.HRMSEmail;
         
         if (!string.IsNullOrWhiteSpace(updated.APPEmail))

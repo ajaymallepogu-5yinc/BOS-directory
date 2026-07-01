@@ -48,7 +48,6 @@
         erDiagram
             %% Core Domain
             Departments ||--o{ Employees : "contains"
-            AppRoles ||--o{ Employees : "categorizes"
             Employees ||--o{ OrgReportings : "has_reporting"
             
             %% Identity Mapping
@@ -59,10 +58,6 @@
             AspNetUsers ||--o{ AspNetUserClaims : "has_claims"
             AspNetUsers ||--o{ AspNetUserTokens : "uses_tokens"
             AspNetRoles ||--o{ AspNetRoleClaims : "has_role_claims"
-
-            %% Jira Integration
-            JiraProjects ||--o{ JiraIssues : "owns"
-            JiraSprints ||--o{ JiraIssues : "sprint_contains"
 
             Departments {
                 int Id PK
@@ -81,12 +76,6 @@
                 string AspNetUserId FK
                 string APPEmail
                 string HRMSEmail
-                int APPRoleId FK
-            }
-
-            AppRoles {
-                int Id PK
-                string Name
             }
 
             OrgReportings {
@@ -102,9 +91,7 @@
                 string HrPortalApiUrl
                 string HrPortalApiAuthHeaderName
                 string HrPortalApiAuthHeaderValue
-                string JiraApiUrl
-                string JiraUserEmail
-                string JiraApiToken
+
                 string IdField
                 string FullNameField
                 string TitleField
@@ -114,33 +101,6 @@
                 string DepartmentIdField
                 string DepartmentNameField
                 string DepartmentColorField
-            }
-
-            JiraProjects {
-                int Id PK
-                string Key
-                string Name
-            }
-
-            JiraSprints {
-                int Id PK
-                string Name
-                string State
-                int BoardId
-            }
-
-            JiraIssues {
-                int Id PK
-                string Key
-                string Summary
-                string Status
-                string Assignee
-                string Priority
-                string Description
-                string ExpectedTime
-                string ActualTime
-                int SprintId FK
-                int ProjectId FK
             }
         </pre>
     </div>

@@ -41,13 +41,9 @@ body {
   background: transparent;
 }
 
-/* Custom tree background image uploaded by the user */
+/* Custom tree background - clean slate dot-grid background */
 .bg-tree-canvas {
-  background-color: #070D19;
-  background-image: url('/background-tree.jpg');
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
+  background-color: #f1f5f9;
 }
 
 /* Floating glass search bar — placeholder matches icon color exactly */
@@ -90,4 +86,28 @@ body {
   animation: expandSubtreeDown 0.45s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
   transform-origin: top center;
   overflow: visible;
+}
+
+/* Hide scrollbar utility class to match live UI */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Smoothly animate node layout transitions (expanding, collapsing, layout switching) */
+.react-flow__node {
+  transition: transform 0.45s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* Bypass transitions during active manual dragging to ensure instant responsiveness */
+.react-flow__node.dragging {
+  transition: none !important;
+}
+
+/* Disable React Flow's default dimming of non-selected nodes */
+.react-flow__node:not(.selected) {
+  opacity: 1 !important;
 }

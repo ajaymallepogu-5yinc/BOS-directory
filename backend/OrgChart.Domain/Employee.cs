@@ -21,9 +21,6 @@ public class Employee : IdentityUser<int>
     // Authentication and Role fields
     public string APPEmail { get; set; } = string.Empty;
     public string? HRMSEmail { get; set; }
-    
-    public int? APPRoleId { get; set; }
-    public AppRole? APPRole { get; set; }
 
     public ICollection<EmpDepartment> EmpDepartments { get; set; } = new List<EmpDepartment>();
 

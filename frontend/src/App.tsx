@@ -3,6 +3,7 @@ import Sidebar from "./components/Layout/Sidebar";
 import AdminPage from "./pages/AdminPage";
 import CompanyTreePage from "./pages/CompanyTreePage";
 import DepartmentTreePage from "./pages/DepartmentTreePage";
+import RoleMappingPage from "./pages/RoleMappingPage";
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<CompanyTreePage />} />
             <Route path="/department" element={<DepartmentTreePage />} />
+            <Route path="/role-mapping" element={<RoleMappingPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Routes>
         </main>

@@ -27,6 +27,7 @@ export interface Employee {
   managerName?: string | null;
   departmentId: number;
   department: string;
+  email: string;
 }
 
 export interface ManagerOption {
@@ -49,9 +50,7 @@ export interface Settings {
   hrPortalApiUrl?: string;
   hrPortalApiAuthHeaderName?: string;
   hrPortalApiAuthHeaderValue?: string;
-  jiraApiUrl?: string;
-  jiraUserEmail?: string;
-  jiraApiToken?: string;
+
   idField: string;
   fullNameField: string;
   titleField: string;
@@ -69,9 +68,7 @@ export interface UpdateSettingsRequest {
   hrPortalApiUrl?: string;
   hrPortalApiAuthHeaderName?: string;
   hrPortalApiAuthHeaderValue?: string;
-  jiraApiUrl?: string;
-  jiraUserEmail?: string;
-  jiraApiToken?: string;
+
   idField: string;
   fullNameField: string;
   titleField: string;
@@ -116,75 +113,7 @@ export interface TestConnectionResult {
   validationErrors: string[];
 }
 
-export interface JiraProject {
-  id: number;
-  key: string;
-  name: string;
-}
 
-export interface JiraSprint {
-  id: number;
-  name: string;
-  state: string;
-  boardId: number;
-}
-
-export interface JiraIssue {
-  id: number;
-  key: string;
-  summary: string;
-  status: string;
-  assignee: string;
-  priority: string;
-  description: string;
-  expectedTime: string;
-  actualTime: string;
-  sprintId?: number | null;
-  projectId: number;
-  projectName: string;
-  projectKey: string;
-  sprintName: string;
-}
-
-export interface JiraDashboardData {
-  projects: JiraProject[];
-  sprints: JiraSprint[];
-  issues: JiraIssue[];
-}
-
-export interface TestJiraConnectionRequest {
-  apiUrl: string;
-  userEmail?: string;
-  apiToken?: string;
-}
-
-export interface TestJiraConnectionResult {
-  success: boolean;
-  message: string;
-  projectCount: number;
-  sprintCount: number;
-  issueCount: number;
-  sampleIssues: Partial<JiraIssue>[];
-  validationErrors: string[];
-}
-
-export interface JiraImportResult {
-  success: boolean;
-  message: string;
-  importedCount: number;
-}
-
-export interface UpdateJiraIssueRequest {
-  summary: string;
-  status: string;
-  assignee: string;
-  priority: string;
-  description: string;
-  expectedTime: string;
-  actualTime: string;
-  projectId: number;
-  sprintId?: number | null;
-}
 
 export interface BulkImportEmployee {
   id: string;
@@ -201,5 +130,29 @@ export interface BulkImportResult {
   success: boolean;
   message: string;
   importedCount: number;
+}
+
+export interface CareerLevel {
+  level: number;
+  title: string;
+  description: string;
+  requirements: string;
+  parentTitle?: string | null;
+}
+
+export interface CareerTrack {
+  trackName: string;
+  description: string;
+  levels: CareerLevel[];
+}
+
+export interface EmployeeCareerMapping {
+  employeeId: number;
+  fullName: string;
+  title: string;
+  avatarUrl?: string | null;
+  trackName: string;
+  currentLevel: number;
+  careerPath: CareerLevel[];
 }
 

@@ -12,6 +12,7 @@ public class EmployeeDto
     public string? ManagerName { get; set; }
     public int DepartmentId { get; set; }
     public string Department { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
 }
 
 /// <summary>Lightweight record used to populate "reports to" dropdowns.</summary>
