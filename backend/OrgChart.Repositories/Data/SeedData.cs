@@ -33,7 +33,9 @@ public static class SeedData
                     ""ManagerIdField"" VARCHAR(100) NOT NULL,
                     ""DepartmentIdField"" VARCHAR(100) NOT NULL,
                     ""DepartmentNameField"" VARCHAR(100) NOT NULL,
-                    ""DepartmentColorField"" VARCHAR(100) NOT NULL
+                    ""DepartmentColorField"" VARCHAR(100) NOT NULL,
+                    ""APPEmailField"" VARCHAR(100) NOT NULL DEFAULT 'appEmail',
+                    ""HRMSEmailField"" VARCHAR(100) NOT NULL DEFAULT 'hrmsEmail'
                 );";
             db.Database.ExecuteSqlRaw(sql);
         }
@@ -57,6 +59,8 @@ public static class SeedData
                         [DepartmentIdField] nvarchar(100) NOT NULL,
                         [DepartmentNameField] nvarchar(100) NOT NULL,
                         [DepartmentColorField] nvarchar(100) NOT NULL,
+                        [APPEmailField] nvarchar(100) NOT NULL DEFAULT 'appEmail',
+                        [HRMSEmailField] nvarchar(100) NOT NULL DEFAULT 'hrmsEmail',
                         CONSTRAINT [PK_DataSourceConfigs] PRIMARY KEY CLUSTERED ([Id] ASC)
                     );
                 END";
@@ -82,7 +86,9 @@ public static class SeedData
                 ManagerIdField = "managerId",
                 DepartmentIdField = "departmentId",
                 DepartmentNameField = "departmentName",
-                DepartmentColorField = "departmentColor"
+                DepartmentColorField = "departmentColor",
+                APPEmailField = "appEmail",
+                HRMSEmailField = "hrmsEmail"
             });
             db.SaveChanges();
         }

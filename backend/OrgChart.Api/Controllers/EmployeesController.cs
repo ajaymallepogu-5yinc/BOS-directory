@@ -233,8 +233,12 @@ public class EmployeesController : ControllerBase
                 var deptName = string.IsNullOrWhiteSpace(item.DepartmentName) ? "Default" : item.DepartmentName;
                 var deptEntity = departmentCache[deptName];
 
-                var emailName = item.FullName.Replace(" ", "").Replace("'", "").ToLowerInvariant();
-                var email = $"{emailName}_{item.Id.ToLowerInvariant()}@5yinc.com";
+                string email = item.APPEmail;
+                if (string.IsNullOrWhiteSpace(email))
+                {
+                    var emailName = item.FullName.Replace(" ", "").Replace("'", "").ToLowerInvariant();
+                    email = $"{emailName}_{item.Id.ToLowerInvariant()}@5yinc.com";
+                }
 
                 var empEntity = new Employee
                 {
@@ -243,6 +247,7 @@ public class EmployeesController : ControllerBase
                     Company = item.Company,
                     AvatarUrl = item.AvatarUrl,
                     APPEmail = email,
+                    HRMSEmail = item.HRMSEmail,
                     Email = email,
                     NormalizedEmail = email.ToUpperInvariant(),
                     UserName = email,

@@ -63,6 +63,8 @@ export interface Settings {
   departmentIdField: string;
   departmentNameField: string;
   departmentColorField: string;
+  appEmailField: string;
+  hrmsEmailField: string;
   supportsWrites: boolean;
 }
 
@@ -81,6 +83,8 @@ export interface UpdateSettingsRequest {
   departmentIdField: string;
   departmentNameField: string;
   departmentColorField: string;
+  appEmailField: string;
+  hrmsEmailField: string;
 }
 
 export interface TestConnectionRequest {
@@ -96,6 +100,8 @@ export interface TestConnectionRequest {
   departmentIdField: string;
   departmentNameField: string;
   departmentColorField: string;
+  appEmailField: string;
+  hrmsEmailField: string;
 }
 
 export interface EmployeePreview {
@@ -127,6 +133,8 @@ export interface BulkImportEmployee {
   managerId?: string | null;
   departmentName: string;
   departmentColor?: string | null;
+  appEmail?: string | null;
+  hrmsEmail?: string | null;
 }
 
 export interface BulkImportResult {

@@ -159,6 +159,24 @@ public class HrPortalEmployeeRepository : IEmployeeRepository
                 ? deptColorEl.Value.GetString() ?? "#64748B" 
                 : "#64748B";
 
+            // 10. Parse App Email (Optional - fallback to auto-generated)
+            var appEmailEl = GetElementByPath(item, config.APPEmailField);
+            string appEmail = appEmailEl.HasValue && appEmailEl.Value.ValueKind == JsonValueKind.String
+                ? appEmailEl.Value.GetString() ?? ""
+                : "";
+
+            if (string.IsNullOrWhiteSpace(appEmail))
+            {
+                var emailName = fullName.Replace(" ", "").Replace("'", "").ToLowerInvariant();
+                appEmail = $"{emailName}_{id}@5yinc.com";
+            }
+
+            // 11. Parse HRMS Email (Optional)
+            var hrmsEmailEl = GetElementByPath(item, config.HRMSEmailField);
+            string? hrmsEmail = hrmsEmailEl.HasValue && hrmsEmailEl.Value.ValueKind == JsonValueKind.String
+                ? hrmsEmailEl.Value.GetString()
+                : null;
+
             employees.Add(new Employee
             {
                 Id = id,
@@ -168,6 +186,12 @@ public class HrPortalEmployeeRepository : IEmployeeRepository
                 AvatarUrl = avatarUrl,
                 ManagerId = managerId,
                 DepartmentId = departmentId,
+                APPEmail = appEmail,
+                HRMSEmail = hrmsEmail,
+                Email = appEmail,
+                UserName = appEmail,
+                NormalizedEmail = appEmail.ToUpperInvariant(),
+                NormalizedUserName = appEmail.ToUpperInvariant(),
                 Department = new Department
                 {
                     Id = departmentId,

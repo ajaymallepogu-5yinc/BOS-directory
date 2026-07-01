@@ -17,6 +17,8 @@ public class BulkImportEmployeeDto
     public string? ManagerId { get; set; }
     public string DepartmentName { get; set; } = string.Empty;
     public string? DepartmentColor { get; set; }
+    public string? APPEmail { get; set; }
+    public string? HRMSEmail { get; set; }
 }
 
 public class BulkImportResultDto

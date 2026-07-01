@@ -53,6 +53,8 @@ public class SettingsController : ControllerBase
             DepartmentIdField = config.DepartmentIdField,
             DepartmentNameField = config.DepartmentNameField,
             DepartmentColorField = config.DepartmentColorField,
+            APPEmailField = config.APPEmailField,
+            HRMSEmailField = config.HRMSEmailField,
             SupportsWrites = config.Mode == "Local"
         });
     }
@@ -81,6 +83,8 @@ public class SettingsController : ControllerBase
         config.DepartmentIdField = dto.DepartmentIdField;
         config.DepartmentNameField = dto.DepartmentNameField;
         config.DepartmentColorField = dto.DepartmentColorField;
+        config.APPEmailField = dto.APPEmailField;
+        config.HRMSEmailField = dto.HRMSEmailField;
 
         await _db.SaveChangesAsync();
         return NoContent();
@@ -446,6 +450,8 @@ public class SettingsDto
     public string DepartmentIdField { get; set; } = "departmentId";
     public string DepartmentNameField { get; set; } = "departmentName";
     public string DepartmentColorField { get; set; } = "departmentColor";
+    public string APPEmailField { get; set; } = "appEmail";
+    public string HRMSEmailField { get; set; } = "hrmsEmail";
     public bool SupportsWrites { get; set; }
 }
 
@@ -465,6 +471,8 @@ public class UpdateSettingsDto
     public string DepartmentIdField { get; set; } = "departmentId";
     public string DepartmentNameField { get; set; } = "departmentName";
     public string DepartmentColorField { get; set; } = "departmentColor";
+    public string APPEmailField { get; set; } = "appEmail";
+    public string HRMSEmailField { get; set; } = "hrmsEmail";
 }
 
 public class TestConnectionDto
@@ -481,6 +489,8 @@ public class TestConnectionDto
     public string DepartmentIdField { get; set; } = "departmentId";
     public string DepartmentNameField { get; set; } = "departmentName";
     public string DepartmentColorField { get; set; } = "departmentColor";
+    public string APPEmailField { get; set; } = "appEmail";
+    public string HRMSEmailField { get; set; } = "hrmsEmail";
 }
 
 public class EmployeePreviewDto

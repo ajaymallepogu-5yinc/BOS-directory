@@ -44,4 +44,10 @@ public class DataSourceConfig
 
     [Required, MaxLength(100)]
     public string DepartmentColorField { get; set; } = "departmentColor";
+
+    [Required, MaxLength(100)]
+    public string APPEmailField { get; set; } = "appEmail";
+
+    [Required, MaxLength(100)]
+    public string HRMSEmailField { get; set; } = "hrmsEmail";
 }

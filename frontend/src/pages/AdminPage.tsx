@@ -40,6 +40,8 @@ export default function AdminPage() {
   const [departmentIdField, setDepartmentIdField] = useState<string>("departmentId");
   const [departmentNameField, setDepartmentNameField] = useState<string>("departmentName");
   const [departmentColorField, setDepartmentColorField] = useState<string>("departmentColor");
+  const [appEmailField, setAppEmailField] = useState<string>("appEmail");
+  const [hrmsEmailField, setHrmsEmailField] = useState<string>("hrmsEmail");
 
   // Settings testing/saving/importing state
   const [testing, setTesting] = useState(false);
@@ -75,6 +77,9 @@ export default function AdminPage() {
     if (titleField && !headers.includes(titleField)) {
       errors.push(`Job Title Key: "${titleField}"`);
     }
+    if (appEmailField && !headers.includes(appEmailField)) {
+      errors.push(`App Email Key: "${appEmailField}"`);
+    }
     if (managerIdField) {
       const firstPart = managerIdField.split(".")[0];
       if (!headers.includes(managerIdField) && !headers.includes(firstPart)) {
@@ -106,7 +111,9 @@ export default function AdminPage() {
       avatarUrl: getNestedValue(row, avatarUrlField),
       managerId: getNestedValue(row, managerIdField),
       departmentName: getNestedValue(row, departmentNameField),
-      departmentColor: getNestedValue(row, departmentColorField)
+      departmentColor: getNestedValue(row, departmentColorField),
+      appEmail: getNestedValue(row, appEmailField),
+      hrmsEmail: getNestedValue(row, hrmsEmailField)
     }));
 
     setCsvParsedData(mapped);
@@ -119,7 +126,9 @@ export default function AdminPage() {
     avatarUrlField,
     managerIdField,
     departmentNameField,
-    departmentColorField
+    departmentColorField,
+    appEmailField,
+    hrmsEmailField
   ]);
 
   async function loadSettings() {
@@ -138,6 +147,8 @@ export default function AdminPage() {
       setDepartmentIdField(s.departmentIdField);
       setDepartmentNameField(s.departmentNameField);
       setDepartmentColorField(s.departmentColorField);
+      setAppEmailField(s.appEmailField ?? "appEmail");
+      setHrmsEmailField(s.hrmsEmailField ?? "hrmsEmail");
     } catch (err) {
       console.error("Error fetching data source settings:", err);
     }
@@ -214,7 +225,9 @@ export default function AdminPage() {
         managerIdField,
         departmentIdField,
         departmentNameField,
-        departmentColorField
+        departmentColorField,
+        appEmailField,
+        hrmsEmailField
       });
       setTestResult(res);
     } catch (err: any) {
@@ -254,7 +267,9 @@ export default function AdminPage() {
         managerIdField,
         departmentIdField,
         departmentNameField,
-        departmentColorField
+        departmentColorField,
+        appEmailField,
+        hrmsEmailField
       });
 
       // Then trigger backend import
@@ -270,7 +285,9 @@ export default function AdminPage() {
         managerIdField,
         departmentIdField,
         departmentNameField,
-        departmentColorField
+        departmentColorField,
+        appEmailField,
+        hrmsEmailField
       });
 
       if (res.success) {
@@ -432,7 +449,9 @@ export default function AdminPage() {
         managerIdField,
         departmentIdField,
         departmentNameField,
-        departmentColorField
+        departmentColorField,
+        appEmailField,
+        hrmsEmailField
       });
       setSettingsSuccessMessage("API Configuration preferences saved!");
       setTimeout(() => setSettingsSuccessMessage(null), 3000);
@@ -667,6 +686,26 @@ export default function AdminPage() {
                     type="text"
                     value={departmentColorField}
                     onChange={(e) => setDepartmentColorField(e.target.value)}
+                    className="mt-1 block w-full rounded-lg border border-ink-300 px-3 py-1.5 text-xs text-ink-900 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-ink-500">App Email Key (Authentication)</label>
+                  <input
+                    type="text"
+                    value={appEmailField}
+                    onChange={(e) => setAppEmailField(e.target.value)}
+                    placeholder="e.g. appEmail"
+                    className="mt-1 block w-full rounded-lg border border-ink-300 px-3 py-1.5 text-xs text-ink-900 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-ink-500">HRMS Email Key (Optional)</label>
+                  <input
+                    type="text"
+                    value={hrmsEmailField}
+                    onChange={(e) => setHrmsEmailField(e.target.value)}
+                    placeholder="e.g. hrmsEmail"
                     className="mt-1 block w-full rounded-lg border border-ink-300 px-3 py-1.5 text-xs text-ink-900 font-mono"
                   />
                 </div>
