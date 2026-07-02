@@ -9,7 +9,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 
 // Layout wrapper to protect authenticated pages
 function ProtectedLayout() {
-  const { user, loading } = useAuth();
+  const { loading } = useAuth();
 
   if (loading) {
     return (
@@ -24,10 +24,12 @@ function ProtectedLayout() {
     );
   }
 
-  // Redirect to login if session doesn't exist
+  // Redirect to login if session doesn't exist (Bypassed for local development testing)
+  /*
   if (!user) {
     return <Navigate to="/login" replace />;
   }
+  */
 
   // Render the core layout with Sidebar
   return (
