@@ -1,12 +1,25 @@
 import { NavLink } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
 
 export default function Sidebar() {
+  const { user, logout } = useAuth();
+
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-2.5 rounded-xl py-2.5 px-3.5 text-xs font-semibold transition-all duration-200 ${
       isActive
         ? "bg-brand text-white shadow-md shadow-brand/15 font-bold"
         : "text-ink-600 hover:bg-ink-100 hover:text-ink-900"
     }`;
+
+  // Fallback for avatar initials
+  const getInitials = (name: string) => {
+    return name
+      .split(/\s+/)
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
+  };
 
   return (
     <aside className="w-52 shrink-0 flex flex-col border-r border-ink-200 bg-white h-full">
@@ -40,18 +53,48 @@ export default function Sidebar() {
           </svg>
           <span className="truncate">Company Careers</span>
         </NavLink>
-
       </nav>
 
-      {/* Admin Console at the bottom */}
-      <div className="px-3 py-4">
-        <NavLink to="/admin" className={linkClass}>
-          <svg className="h-5 w-5 shrink-0 text-current" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          <span className="truncate">Admin</span>
-        </NavLink>
+      {/* Admin Console and User profile section at the bottom */}
+      <div className="border-t border-ink-150 px-3 py-4 flex flex-col gap-3">
+        {user?.isAdmin && (
+          <NavLink to="/admin" className={linkClass}>
+            <svg className="h-5 w-5 shrink-0 text-current" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <span className="truncate">Admin</span>
+          </NavLink>
+        )}
+
+        {user && (
+          <div className="flex items-center gap-2.5 bg-ink-50/50 rounded-xl p-2 border border-ink-150/40">
+            {user.avatarUrl ? (
+              <img
+                src={user.avatarUrl}
+                alt={user.fullName}
+                className="h-8 w-8 rounded-full object-cover border border-ink-200 shrink-0"
+              />
+            ) : (
+              <div className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white bg-indigo-600 shrink-0">
+                {getInitials(user.fullName)}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-black text-ink-900 truncate leading-tight">{user.fullName}</p>
+              <p className="text-[8px] font-bold text-ink-400 truncate leading-none mt-0.5">{user.title}</p>
+            </div>
+            <button
+              onClick={() => logout()}
+              className="text-ink-400 hover:text-rose-600 transition-colors shrink-0 p-0.5 rounded-lg hover:bg-rose-50"
+              title="Logout"
+            >
+              <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );
