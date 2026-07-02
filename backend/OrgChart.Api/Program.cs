@@ -141,6 +141,7 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     
     bool tableExists = false;
+    bool needsRecreate = false;
     try
     {
         var conn = db.Database.GetDbConnection();
@@ -157,6 +158,17 @@ using (var scope = app.Services.CreateScope())
                 cmd.CommandText = "SELECT OBJECT_ID(N'[AspNetUsers]', N'U')";
                 var res = cmd.ExecuteScalar();
                 tableExists = res != DBNull.Value && res != null;
+
+                if (tableExists)
+                {
+                    // Check if APPEmailField exists in local SQL Server table
+                    cmd.CommandText = "SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID(N'[DataSourceConfigs]') AND name = 'APPEmailField'";
+                    var count = Convert.ToInt32(cmd.ExecuteScalar());
+                    if (count == 0)
+                    {
+                        needsRecreate = true;
+                    }
+                }
             }
         }
     }
@@ -165,7 +177,7 @@ using (var scope = app.Services.CreateScope())
         tableExists = false;
     }
 
-    if (!tableExists)
+    if (!tableExists || needsRecreate)
     {
         if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
         {
@@ -175,6 +187,7 @@ using (var scope = app.Services.CreateScope())
         else
         {
             db.Database.EnsureDeleted();
+            Microsoft.Data.SqlClient.SqlConnection.ClearAllPools();
             db.Database.EnsureCreated();
         }
     }
