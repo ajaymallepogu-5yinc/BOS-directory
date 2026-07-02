@@ -74,9 +74,9 @@ public class AuthController : ControllerBase
             // Establish standard ASP.NET Identity session cookie
             await _signInManager.SignInAsync(employee, isPersistent: true);
 
-            // Determine if admin (only Sashank is Admin by default, or anyone with Admin role)
+            // Determine if admin (strictly based on Admin identity role)
             var roles = await _userManager.GetRolesAsync(employee);
-            var isAdmin = roles.Contains("Admin") || employee.APPEmail.ToLower() == "sashank@bosframework.com";
+            var isAdmin = roles.Contains("Admin");
 
             return Ok(new UserSessionDto
             {
@@ -132,7 +132,7 @@ public class AuthController : ControllerBase
         }
 
         var roles = await _userManager.GetRolesAsync(employee);
-        var isAdmin = roles.Contains("Admin") || employee.APPEmail.ToLower() == "sashank@bosframework.com";
+        var isAdmin = roles.Contains("Admin");
 
         return Ok(new UserSessionDto
         {
