@@ -127,7 +127,7 @@ export default function EmployeeFormDrawer({
             <CustomSelect
               value={values.departmentId}
               onChange={(val) => setValues((v) => ({ ...v, departmentId: val !== null ? Number(val) : null }))}
-              options={departments.map((d) => ({ value: d.id, label: d.name }))}
+              options={Array.isArray(departments) ? departments.map((d) => ({ value: d.id, label: d.name })) : []}
               emptyLabel="Select a department"
             />
           </Field>

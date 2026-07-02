@@ -20,8 +20,10 @@ export default function EmployeeNode({ data, selected }: EmployeeNodeProps) {
 
   // Generate initials for avatar placeholder
   const getInitials = (name: string) => {
+    if (!name) return "EE";
     return name
       .split(" ")
+      .filter(Boolean)
       .map((n) => n[0])
       .join("")
       .toUpperCase()

@@ -454,7 +454,7 @@ function CompanyTreeInner() {
         <Background color="#cbd5e1" style={{ opacity: 0.3 }} gap={16} size={1} />
         
         {/* Dynamic Legend Panel */}
-        {departments.length > 0 && (
+        {Array.isArray(departments) && departments.length > 0 && (
           <Panel position="bottom-left" className="m-6 max-w-sm hidden sm:block">
             <div className="rounded-2xl border border-ink-200 bg-white p-3.5 shadow-sm">
               <p className="text-[10px] font-extrabold uppercase tracking-widest text-ink-600 mb-2">Departments</p>

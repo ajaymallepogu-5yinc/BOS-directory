@@ -384,7 +384,7 @@ function DepartmentTreeInner() {
           </button>
 
           {/* Custom dropdown menu */}
-          {dropdownOpen && (
+          {dropdownOpen && Array.isArray(departments) && (
             <div className="absolute left-0 mt-1.5 w-56 rounded-xl border border-ink-150 bg-white p-1.5 shadow-xl z-20 max-h-60 !overflow-y-auto scrollbar-none animate-expand-down">
               {departments.map((dept) => (
                 <button

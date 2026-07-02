@@ -13,8 +13,10 @@ export default function Sidebar() {
 
   // Fallback for avatar initials
   const getInitials = (name: string) => {
+    if (!name) return "EE";
     return name
       .split(/\s+/)
+      .filter(Boolean)
       .map((w) => w[0])
       .join("")
       .slice(0, 2)
