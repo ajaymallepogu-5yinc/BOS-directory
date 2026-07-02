@@ -18,6 +18,8 @@ export default function LoginPage() {
   useEffect(() => {
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "339462828557-smpb22g16a1b241315b74681329c3v3d.apps.googleusercontent.com"; // placeholder or default client ID
 
+    console.log("Initializing Google Sign-in with Client ID:", clientId);
+
     // Callback invoked when user successfully logs in with Google
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handleCredentialResponse = async (response: any) => {
