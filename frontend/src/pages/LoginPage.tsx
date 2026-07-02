@@ -66,12 +66,12 @@ export default function LoginPage() {
   }, [login, navigate]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-12 relative overflow-hidden select-none">
-      {/* Background radial glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none" />
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12 relative overflow-hidden select-none">
+      {/* Background soft radial gradient */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-brand/5 rounded-full blur-[100px] pointer-events-none" />
 
       {/* Card container */}
-      <div className="w-full max-w-md space-y-8 rounded-2xl border border-white/10 bg-white/[0.02] p-8 shadow-2xl backdrop-blur-md">
+      <div className="w-full max-w-sm space-y-7 rounded-xl border border-slate-200 bg-white p-8 shadow-md relative z-10">
         
         {/* Branding header */}
         <div className="text-center">
@@ -79,41 +79,41 @@ export default function LoginPage() {
             <img 
               src="/5y.webp" 
               alt="5yinc Logo" 
-              className="h-16 w-auto object-contain hover:scale-105 transition-transform duration-350"
+              className="h-14 w-auto object-contain hover:scale-102 transition-transform duration-300"
             />
           </div>
-          <h2 className="mt-6 text-center font-display text-2xl font-black tracking-tight text-white">
+          <h2 className="mt-5 text-center font-display text-lg font-bold text-slate-800">
             Company Directory
           </h2>
-          <p className="mt-2 text-center text-xs font-semibold text-slate-400">
+          <p className="mt-1.5 text-center text-xs text-slate-500">
             Sign in to explore teams, careers, and organization structures.
           </p>
         </div>
 
         {/* Error alert banner */}
         {error && (
-          <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-xs font-semibold text-red-400 text-center animate-fade-in">
-            ⚠️ {error}
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-600 text-center animate-fade-in">
+            {error}
           </div>
         )}
 
         {/* Action Button Container */}
-        <div className="mt-8 flex flex-col items-center justify-center gap-4">
+        <div className="mt-6 flex flex-col items-center justify-center gap-4">
           {authenticating ? (
             <div className="flex flex-col items-center gap-3">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
-              <span className="text-[10px] font-bold tracking-wide uppercase text-slate-500 animate-pulse">
-                Verifying Credentials...
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+              <span className="text-[10px] font-bold tracking-wide uppercase text-slate-400 animate-pulse">
+                Verifying...
               </span>
             </div>
           ) : (
-            <div id="google-signin-button" className="min-h-[44px] flex items-center justify-center" />
+            <div id="google-signin-button" className="min-h-[40px] flex items-center justify-center" />
           )}
         </div>
 
         {/* Footer legalities */}
-        <div className="text-center text-[10px] font-semibold text-slate-500">
-          This system is restricted to authorized 5yinc employees only.
+        <div className="text-center text-[10px] text-slate-400">
+          This system is restricted to authorized employees only.
         </div>
       </div>
     </div>
