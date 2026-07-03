@@ -243,22 +243,27 @@ function RoleMappingInner() {
           fetchEmployees(),
           fetchRoleTracks(),
         ]);
-        setEmployees(empList);
 
-        const techTrack = trackList.find((t) => t.trackName === "Technology");
+        // Guard: ensure both responses are arrays before using array methods
+        const safeEmployees = Array.isArray(empList) ? empList : [];
+        const safeTracks = Array.isArray(trackList) ? trackList : [];
+
+        setEmployees(safeEmployees);
+
+        const techTrack = safeTracks.find((t) => t.trackName === "Technology");
         if (techTrack) {
-          setTechLevels(techTrack.levels);
-          const currentUser = empList.find(e => e.appEmail?.toLowerCase() === LOGGED_IN_EMAIL);
+          setTechLevels(techTrack.levels ?? []);
+          const currentUser = safeEmployees.find(e => e.appEmail?.toLowerCase() === LOGGED_IN_EMAIL);
           if (currentUser) {
             const track = resolveTrack(currentUser.title);
             const levelVal = resolveLevel(currentUser.title, track);
-            const matchedLevel = techTrack.levels.find(l => l.level === levelVal);
+            const matchedLevel = (techTrack.levels ?? []).find(l => l.level === levelVal);
             if (matchedLevel) {
               setActiveLevelDetails(matchedLevel);
-            } else if (techTrack.levels.length > 0) {
+            } else if ((techTrack.levels ?? []).length > 0) {
               setActiveLevelDetails(techTrack.levels[0]);
             }
-          } else if (techTrack.levels.length > 0) {
+          } else if ((techTrack.levels ?? []).length > 0) {
             setActiveLevelDetails(techTrack.levels[0]);
           }
         }
