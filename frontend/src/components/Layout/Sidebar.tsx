@@ -88,10 +88,10 @@ export default function Sidebar() {
             </div>
             <button
               onClick={() => logout()}
-              className="text-ink-400 hover:text-rose-600 transition-colors shrink-0 p-0.5 rounded-lg hover:bg-rose-50"
-              title="Logout"
+              className="flex items-center justify-center text-ink-400 hover:text-rose-600 hover:bg-rose-50/70 border border-transparent hover:border-rose-150 transition-all shrink-0 p-1.5 rounded-xl"
+              title="Log Out"
             >
-              <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
               </svg>
             </button>
