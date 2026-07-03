@@ -21,7 +21,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async function checkSession() {
       try {
         const currentUser = await fetchCurrentUser();
-        setUser(currentUser);
+        // Safety check: Make sure we got a valid object and not a fallback HTML string
+        if (currentUser && typeof currentUser === "object" && "appEmail" in currentUser) {
+          setUser(currentUser);
+        } else {
+          setUser(null);
+        }
       } catch {
         setUser(null);
       } finally {
