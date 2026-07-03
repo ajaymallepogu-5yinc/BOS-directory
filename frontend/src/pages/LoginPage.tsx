@@ -16,7 +16,7 @@ export default function LoginPage() {
   }, [user, navigate]);
 
   useEffect(() => {
-    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "339462828557-smpb22g16a1b241315b74681329c3v3d.apps.googleusercontent.com"; // placeholder or default client ID
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "339462828557-smpb22g16a1b241315b74681329c3v3d.apps.googleusercontent.com";
 
     console.log("Initializing Google Sign-in with Client ID:", clientId);
 
@@ -31,7 +31,7 @@ export default function LoginPage() {
       } catch (err: any) {
         console.error("Login failed:", err);
         setError(
-          err.response?.data?.message || 
+          err.response?.data?.message ||
           "Authentication failed. Please verify your email is pre-registered in the directory."
         );
       } finally {
@@ -39,32 +39,55 @@ export default function LoginPage() {
       }
     };
 
-    // Initialize Google Identity Services
-    try {
-      if (typeof window !== "undefined" && (window as any).google?.accounts?.id) {
-        const idObj = (window as any).google.accounts.id;
-        idObj.initialize({
-          client_id: clientId,
-          callback: handleCredentialResponse,
-          auto_select: false,
-          cancel_on_tap_outside: true
-        });
+    // The Google GSI script loads with async+defer, so window.google may not
+    // be available yet when this effect first runs. Poll until it is ready.
+    let attempts = 0;
+    const maxAttempts = 40; // wait up to ~4 seconds (40 × 100 ms)
+    let timerId: ReturnType<typeof setTimeout>;
 
-        idObj.renderButton(
-          document.getElementById("google-signin-button"),
-          {
-            theme: "outline",
-            size: "large",
-            width: 280,
-            text: "signin_with",
-            shape: "pill",
-            logo_alignment: "left"
+    const initGoogle = () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const googleAccounts = (window as any).google?.accounts?.id;
+
+      if (googleAccounts) {
+        try {
+          googleAccounts.initialize({
+            client_id: clientId,
+            callback: handleCredentialResponse,
+            auto_select: false,
+            cancel_on_tap_outside: true,
+          });
+
+          const buttonEl = document.getElementById("google-signin-button");
+          if (buttonEl) {
+            googleAccounts.renderButton(buttonEl, {
+              theme: "outline",
+              size: "large",
+              width: 280,
+              text: "signin_with",
+              shape: "pill",
+              logo_alignment: "left",
+            });
           }
-        );
+        } catch (e) {
+          console.error("Google accounts script failed to initialize", e);
+        }
+      } else {
+        attempts++;
+        if (attempts < maxAttempts) {
+          // Script not ready yet — try again in 100 ms
+          timerId = setTimeout(initGoogle, 100);
+        } else {
+          console.error("Google Sign-In script failed to load after 4 seconds.");
+          setError("Google Sign-In failed to load. Please refresh the page and try again.");
+        }
       }
-    } catch (e) {
-      console.error("Google accounts script failed to initialize", e);
-    }
+    };
+
+    initGoogle();
+
+    // Cleanup: cancel any pending timer when the component unmounts
+    return () => clearTimeout(timerId);
   }, [login, navigate]);
 
   return (
