@@ -85,10 +85,16 @@ builder.Services.ConfigureApplicationCookie(options =>
 {
     options.Cookie.HttpOnly = true;
     options.Cookie.Name = "OrgChart.Identity";
-    options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SameSite = builder.Environment.IsDevelopment()
+        ? SameSiteMode.Lax
+        : SameSiteMode.None;
     options.Cookie.SecurePolicy = builder.Environment.IsDevelopment() 
         ? CookieSecurePolicy.SameAsRequest 
         : CookieSecurePolicy.Always;
+
+    // Keep the session alive for 7 days (isPersistent:true in SignInAsync activates this)
+    options.ExpireTimeSpan = TimeSpan.FromDays(7);
+    options.SlidingExpiration = true;
 
     options.Events.OnRedirectToLogin = context =>
     {
@@ -213,6 +219,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("FrontendPolicy");
+app.UseAuthentication();   // ← MUST come before UseAuthorization to read the session cookie
 app.UseAuthorization();
 app.MapControllers();
 
