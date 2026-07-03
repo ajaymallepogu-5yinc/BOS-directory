@@ -81,6 +81,14 @@ else
 builder.Services.AddIdentity<OrgChart.Domain.Employee, IdentityRole<int>>()
     .AddEntityFrameworkStores<AppDbContext>();
 
+builder.Services.AddAuthorization(options =>
+{
+    // Require an authenticated session on every endpoint unless it opts out with [AllowAnonymous].
+    options.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
+
 builder.Services.ConfigureApplicationCookie(options =>
 {
     options.Cookie.HttpOnly = true;
@@ -203,7 +211,6 @@ using (var scope = app.Services.CreateScope())
     // Ensure system settings schema and defaults are configured
     SeedData.EnsureDataSourceConfigTableExists(db);
     SeedData.SeedDefaultSettings(db);
-    SeedData.SeedHrDummyTable(db);
 
     var config = db.DataSourceConfigs.FirstOrDefault();
     if (app.Environment.IsDevelopment() && (config == null || config.Mode == "Local"))

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OrgChart.Repositories;
 using OrgChart.Services;
@@ -6,6 +7,7 @@ namespace OrgChart.Api.Controllers;
 
 [ApiController]
 [Route("api/tree")]
+[Authorize]
 public class TreeController : ControllerBase
 {
     private readonly IEmployeeRepository _employees;

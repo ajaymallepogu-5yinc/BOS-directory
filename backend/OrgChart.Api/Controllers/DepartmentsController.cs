@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OrgChart.Services.Dtos;
 using OrgChart.Repositories;
@@ -6,6 +7,7 @@ namespace OrgChart.Api.Controllers;
 
 [ApiController]
 [Route("api/departments")]
+[Authorize]
 public class DepartmentsController : ControllerBase
 {
     private readonly IDepartmentRepository _departments;

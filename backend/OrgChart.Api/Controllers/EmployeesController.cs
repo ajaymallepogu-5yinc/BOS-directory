@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OrgChart.Repositories.Data;
@@ -13,6 +14,7 @@ namespace OrgChart.Api.Controllers;
 
 [ApiController]
 [Route("api/employees")]
+[Authorize]
 public class EmployeesController : ControllerBase
 {
     private readonly IEmployeeRepository _employees;
@@ -79,6 +81,7 @@ public class EmployeesController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<EmployeeDto>> Create(CreateEmployeeDto dto)
     {
         if (!_employees.SupportsWrites)
@@ -117,6 +120,7 @@ public class EmployeesController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Update(int id, UpdateEmployeeDto dto)
     {
         if (!_employees.SupportsWrites)
@@ -143,6 +147,7 @@ public class EmployeesController : ControllerBase
     }
 
     [HttpPut("{id:int}/manager")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateManager(int id, [FromBody] UpdateManagerDto dto)
     {
         if (!_employees.SupportsWrites)
@@ -162,6 +167,7 @@ public class EmployeesController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Delete(int id)
     {
         if (!_employees.SupportsWrites)
@@ -173,6 +179,7 @@ public class EmployeesController : ControllerBase
     }
 
     [HttpPost("import-bulk")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<BulkImportResultDto>> ImportBulk([FromBody] BulkImportDto dto)
     {
         if (dto == null || dto.Employees == null || dto.Employees.Count == 0)

@@ -1,9 +1,11 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace OrgChart.Api.Controllers;
 
 [ApiController]
 [Route("api/mock-hr-portal")]
+[Authorize(Roles = "Admin")]
 public class MockHrPortalController : ControllerBase
 {
     [HttpGet("employees")]

@@ -40,6 +40,15 @@ function ProtectedLayout() {
   );
 }
 
+// Guard limiting a route to admins; non-admins are bounced to the company tree
+function AdminRoute() {
+  const { user } = useAuth();
+  if (!user?.isAdmin) {
+    return <Navigate to="/" replace />;
+  }
+  return <Outlet />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -53,7 +62,9 @@ export default function App() {
             <Route path="/" element={<CompanyTreePage />} />
             <Route path="/department" element={<DepartmentTreePage />} />
             <Route path="/role-mapping" element={<RoleMappingPage />} />
-            <Route path="/admin" element={<AdminPage />} />
+            <Route element={<AdminRoute />}>
+              <Route path="/admin" element={<AdminPage />} />
+            </Route>
           </Route>
 
           {/* Fallback redirect to root */}

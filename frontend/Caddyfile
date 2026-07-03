@@ -1,0 +1,30 @@
+{
+	admin off
+	persist_config off
+	auto_https off
+	log {
+		format json
+	}
+	servers {
+		trusted_proxies static private_ranges 100.0.0.0/8
+	}
+}
+
+:{$PORT:3000} {
+	log {
+		format json
+	}
+
+	# Let Railway's health check through without falling back to index.html
+	rewrite /health /*
+
+	root * dist
+
+	encode gzip
+
+	file_server
+
+	# SPA fallback: serve the real file if it exists, otherwise index.html
+	# so React Router can handle client-side routes like /admin, /department.
+	try_files {path} /index.html
+}

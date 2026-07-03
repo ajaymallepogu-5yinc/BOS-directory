@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OrgChart.Repositories.Data;
@@ -14,6 +15,7 @@ namespace OrgChart.Api.Controllers;
 
 [ApiController]
 [Route("api/settings")]
+[Authorize(Roles = "Admin")]
 public class SettingsController : ControllerBase
 {
     private readonly AppDbContext _db;

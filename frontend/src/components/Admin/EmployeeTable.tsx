@@ -4,10 +4,9 @@ interface Props {
   employees: Employee[];
   onEdit: (employee: Employee) => void;
   onDelete: (employee: Employee) => void;
-  readOnly: boolean;
 }
 
-export default function EmployeeTable({ employees, onEdit, onDelete, readOnly }: Props) {
+export default function EmployeeTable({ employees, onEdit, onDelete }: Props) {
   return (
     <div className="overflow-hidden rounded-xl border border-ink-200 bg-white">
       <table className="w-full text-left text-sm">
@@ -32,15 +31,13 @@ export default function EmployeeTable({ employees, onEdit, onDelete, readOnly }:
               <td className="px-4 py-3 text-right">
                 <button
                   onClick={() => onEdit(emp)}
-                  disabled={readOnly}
-                  className="mr-3 text-brand-light hover:underline disabled:cursor-not-allowed disabled:text-ink-300 disabled:no-underline"
+                  className="mr-3 text-brand-light hover:underline"
                 >
                   Edit
                 </button>
                 <button
                   onClick={() => onDelete(emp)}
-                  disabled={readOnly}
-                  className="text-rose-600 hover:underline disabled:cursor-not-allowed disabled:text-ink-300 disabled:no-underline"
+                  className="text-rose-600 hover:underline"
                 >
                   Delete
                 </button>

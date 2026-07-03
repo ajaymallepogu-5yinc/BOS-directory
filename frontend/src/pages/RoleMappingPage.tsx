@@ -13,6 +13,7 @@ import { fetchEmployees } from "../api/employeeApi";
 import { fetchRoleTracks } from "../api/roleApi";
 import type { Employee, CareerLevel } from "../api/types";
 import RoleNode from "../components/OrgChart/RoleNode";
+import { useAuth } from "../context/AuthContext";
 
 const nodeTypes = {
   roleNode: RoleNode,
@@ -220,7 +221,8 @@ function getLayoutedRoleElements(
 }
 
 function RoleMappingInner() {
-  const LOGGED_IN_EMAIL = "gautham@bosframework.com";
+  const { user } = useAuth();
+  const LOGGED_IN_EMAIL = user?.appEmail?.toLowerCase() ?? "";
 
   // Data loading states
   const [employees, setEmployees] = useState<Employee[]>([]);
