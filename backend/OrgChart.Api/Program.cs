@@ -86,7 +86,9 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.Cookie.HttpOnly = true;
     options.Cookie.Name = "OrgChart.Identity";
     options.Cookie.SameSite = SameSiteMode.Lax;
-    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+    options.Cookie.SecurePolicy = builder.Environment.IsDevelopment() 
+        ? CookieSecurePolicy.SameAsRequest 
+        : CookieSecurePolicy.Always;
 
     options.Events.OnRedirectToLogin = context =>
     {
@@ -198,7 +200,7 @@ using (var scope = app.Services.CreateScope())
     SeedData.SeedHrDummyTable(db);
 
     var config = db.DataSourceConfigs.FirstOrDefault();
-    if (config == null || config.Mode == "Local")
+    if (app.Environment.IsDevelopment() && (config == null || config.Mode == "Local"))
     {
         SeedData.EnsureSeeded(db);
     }
