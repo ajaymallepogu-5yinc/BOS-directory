@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { UserSession } from "../api/authApi";
 import { loginWithGoogle, logout as apiLogout, fetchCurrentUser } from "../api/authApi";
@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkSession();
   }, []);
 
-  const login = async (idToken: string) => {
+  const login = useCallback(async (idToken: string) => {
     try {
       const session = await loginWithGoogle(idToken);
       setUser(session);
@@ -44,15 +44,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       throw err;
     }
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await apiLogout();
     } finally {
       setUser(null);
     }
-  };
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, loading, login, logout }}>

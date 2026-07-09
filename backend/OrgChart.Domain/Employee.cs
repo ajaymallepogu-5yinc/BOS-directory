@@ -22,6 +22,9 @@ public class Employee : IdentityUser<int>
     public string APPEmail { get; set; } = string.Empty;
     public string? HRMSEmail { get; set; }
 
+    /// <summary>Optional custom color to override department card color.</summary>
+    public string? CardColor { get; set; }
+
     public ICollection<EmpDepartment> EmpDepartments { get; set; } = new List<EmpDepartment>();
 
     // [NotMapped] Helpers: In-memory properties for mapping, parsing, and backwards compatibility.

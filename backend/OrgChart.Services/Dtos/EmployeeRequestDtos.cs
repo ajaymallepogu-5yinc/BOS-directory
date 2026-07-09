@@ -26,6 +26,8 @@ public class CreateEmployeeDto
 
     [Required]
     public int DepartmentId { get; set; }
+
+    public string? CardColor { get; set; }
 }
 
 public class UpdateEmployeeDto : CreateEmployeeDto
@@ -35,4 +37,9 @@ public class UpdateEmployeeDto : CreateEmployeeDto
 public class UpdateManagerDto
 {
     public int? ManagerId { get; set; }
+}
+
+public class UpdateAdminRoleDto
+{
+    public bool IsAdmin { get; set; }
 }

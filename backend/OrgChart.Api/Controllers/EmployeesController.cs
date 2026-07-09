@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OrgChart.Repositories.Data;
@@ -19,11 +20,13 @@ public class EmployeesController : ControllerBase
 {
     private readonly IEmployeeRepository _employees;
     private readonly AppDbContext _db;
+    private readonly UserManager<Employee> _userManager;
 
-    public EmployeesController(IEmployeeRepository employees, AppDbContext db)
+    public EmployeesController(IEmployeeRepository employees, AppDbContext db, UserManager<Employee> userManager)
     {
         _employees = employees;
         _db = db;
+        _userManager = userManager;
     }
 
     /// <summary>GET /api/employees - flat list for the admin table.</summary>
@@ -32,6 +35,7 @@ public class EmployeesController : ControllerBase
     {
         var all = await _employees.GetAllAsync();
         var lookup = all.ToDictionary(e => e.Id, e => e.FullName);
+        var adminIds = (await _userManager.GetUsersInRoleAsync("Admin")).Select(u => u.Id).ToHashSet();
 
         var result = all.Select(e => new EmployeeDto
         {
@@ -45,7 +49,9 @@ public class EmployeesController : ControllerBase
             DepartmentId = e.DepartmentId ?? 0,
             Department = e.Department?.Name ?? "",
             AppEmail = e.APPEmail,
-            HrmsEmail = e.HRMSEmail
+            HrmsEmail = e.HRMSEmail,
+            CardColor = e.CardColor,
+            IsAdmin = adminIds.Contains(e.Id)
         }).ToList();
 
         return Ok(result);
@@ -65,6 +71,8 @@ public class EmployeesController : ControllerBase
         var e = await _employees.GetByIdAsync(id);
         if (e is null) return NotFound();
 
+        var isAdmin = await _userManager.IsInRoleAsync(e, "Admin");
+
         return Ok(new EmployeeDto
         {
             Id = e.Id,
@@ -76,7 +84,9 @@ public class EmployeesController : ControllerBase
             DepartmentId = e.DepartmentId ?? 0,
             Department = e.Department?.Name ?? "",
             AppEmail = e.APPEmail,
-            HrmsEmail = e.HRMSEmail
+            HrmsEmail = e.HRMSEmail,
+            CardColor = e.CardColor,
+            IsAdmin = isAdmin
         });
     }
 
@@ -97,6 +107,7 @@ public class EmployeesController : ControllerBase
             DepartmentId = dto.DepartmentId,
             APPEmail = dto.APPEmail,
             HRMSEmail = dto.HRMSEmail,
+            CardColor = dto.CardColor,
             UserName = dto.APPEmail,
             Email = dto.APPEmail,
             NormalizedEmail = dto.APPEmail.ToUpperInvariant(),
@@ -115,7 +126,8 @@ public class EmployeesController : ControllerBase
             DepartmentId = created.DepartmentId ?? 0,
             Department = created.Department?.Name ?? "",
             AppEmail = created.APPEmail,
-            HrmsEmail = created.HRMSEmail
+            HrmsEmail = created.HRMSEmail,
+            CardColor = created.CardColor
         });
     }
 
@@ -138,7 +150,8 @@ public class EmployeesController : ControllerBase
             ManagerId = dto.ManagerId,
             DepartmentId = dto.DepartmentId,
             APPEmail = dto.APPEmail,
-            HRMSEmail = dto.HRMSEmail
+            HRMSEmail = dto.HRMSEmail,
+            CardColor = dto.CardColor
         };
 
         var updated = await _employees.UpdateAsync(id, entity);
@@ -164,6 +177,43 @@ public class EmployeesController : ControllerBase
         var updated = await _employees.UpdateAsync(id, existing);
         if (updated is null) return NotFound();
         return NoContent();
+    }
+
+    [HttpPut("{id:int}/admin-role")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> UpdateAdminRole(int id, [FromBody] UpdateAdminRoleDto dto)
+    {
+        var employee = await _userManager.FindByIdAsync(id.ToString());
+        if (employee is null) return NotFound();
+
+        var isCurrentlyAdmin = await _userManager.IsInRoleAsync(employee, "Admin");
+        if (dto.IsAdmin == isCurrentlyAdmin)
+        {
+            return Ok(new { isAdmin = isCurrentlyAdmin });
+        }
+
+        if (!dto.IsAdmin)
+        {
+            var currentUserId = _userManager.GetUserId(User);
+            if (currentUserId != null && int.TryParse(currentUserId, out var callerId) && callerId == id)
+            {
+                return BadRequest(new { message = "You cannot remove your own Admin role. Ask another admin to do this." });
+            }
+
+            var adminCount = (await _userManager.GetUsersInRoleAsync("Admin")).Count;
+            if (adminCount <= 1)
+            {
+                return BadRequest(new { message = "Cannot remove the last remaining Admin." });
+            }
+
+            await _userManager.RemoveFromRoleAsync(employee, "Admin");
+        }
+        else
+        {
+            await _userManager.AddToRoleAsync(employee, "Admin");
+        }
+
+        return Ok(new { isAdmin = dto.IsAdmin });
     }
 
     [HttpDelete("{id:int}")]

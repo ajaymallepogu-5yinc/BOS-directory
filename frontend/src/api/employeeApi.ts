@@ -51,6 +51,11 @@ export async function deleteEmployee(id: number): Promise<void> {
   await apiClient.delete(`/employees/${id}`);
 }
 
+export async function updateEmployeeAdminRole(id: number, isAdmin: boolean): Promise<{ isAdmin: boolean }> {
+  const { data } = await apiClient.put<{ isAdmin: boolean }>(`/employees/${id}/admin-role`, { isAdmin });
+  return data;
+}
+
 export async function importBulkEmployees(employees: BulkImportEmployee[]): Promise<BulkImportResult> {
   const { data } = await apiClient.post<BulkImportResult>("/employees/import-bulk", { employees });
   return data;

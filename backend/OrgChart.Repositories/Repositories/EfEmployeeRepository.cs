@@ -129,6 +129,7 @@ public class EfEmployeeRepository : IEmployeeRepository
         existing.Company = updated.Company;
         existing.AvatarUrl = updated.AvatarUrl;
         existing.HRMSEmail = updated.HRMSEmail;
+        existing.CardColor = updated.CardColor;
         
         if (!string.IsNullOrWhiteSpace(updated.APPEmail))
         {

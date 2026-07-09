@@ -6,14 +6,18 @@ import {
   fetchEmployees,
   fetchManagerOptions,
   updateEmployee,
+  updateEmployeeAdminRole,
   importBulkEmployees,
 } from "../api/employeeApi";
 import { fetchSettings, saveSettings, testSettings, importSettings } from "../api/settingsApi";
 import type { Department, Employee, EmployeeFormValues, ManagerOption, TestConnectionResult, BulkImportEmployee } from "../api/types";
 import EmployeeFormDrawer from "../components/Admin/EmployeeFormDrawer";
 import EmployeeTable from "../components/Admin/EmployeeTable";
+import { useAuth } from "../context/AuthContext";
+import ConfirmModal from "../components/Layout/ConfirmModal";
 
 export default function AdminPage() {
+  const { user } = useAuth();
   // Navigation & General state
   const [activeTab, setActiveTab] = useState<"employees" | "datasource">("employees");
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -22,6 +26,21 @@ export default function AdminPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Reusable confirmation state
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {}
+  });
 
   // Settings State
   const [apiUrl, setApiUrl] = useState<string>("");
@@ -195,16 +214,46 @@ export default function AdminPage() {
     }
   }
 
+  async function handleToggleAdmin(employee: Employee) {
+    const makingAdmin = !employee.isAdmin;
+    setConfirmConfig({
+      isOpen: true,
+      title: makingAdmin ? "Grant Admin Access" : "Remove Admin Access",
+      message: makingAdmin
+        ? `Grant Admin access to ${employee.fullName}?`
+        : `Remove Admin access from ${employee.fullName}?`,
+      confirmLabel: makingAdmin ? "Grant" : "Remove",
+      isDestructive: !makingAdmin,
+      onConfirm: async () => {
+        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+        setErrorMessage(null);
+        try {
+          await updateEmployeeAdminRole(employee.id, makingAdmin);
+          await reload();
+        } catch (err: any) {
+          setErrorMessage(err.response?.data?.message || "Could not update that employee's Admin role.");
+        }
+      }
+    });
+  }
+
   async function handleDelete(employee: Employee) {
-    if (!confirm(`Remove ${employee.fullName}? Their direct reports will be re-assigned to ${employee.managerName ?? "the top of the org"}.`)) {
-      return;
-    }
-    try {
-      await deleteEmployee(employee.id);
-      await reload();
-    } catch (err: any) {
-      setErrorMessage("Could not delete employee record.");
-    }
+    setConfirmConfig({
+      isOpen: true,
+      title: "Delete Employee",
+      message: `Remove ${employee.fullName}? Their direct reports will be re-assigned to ${employee.managerName ?? "the top of the org"}.`,
+      confirmLabel: "Delete",
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+        try {
+          await deleteEmployee(employee.id);
+          await reload();
+        } catch (err: any) {
+          setErrorMessage("Could not delete employee record.");
+        }
+      }
+    });
   }
 
 
@@ -244,64 +293,68 @@ export default function AdminPage() {
   }
 
   async function handleImportData() {
-    const confirmImport = confirm(
-      "WARNING: Importing from the HR portal will clear ALL current employees and departments in this application and replace them with the imported records.\n\nThis action cannot be undone. Do you want to proceed?"
-    );
-    if (!confirmImport) return;
+    setConfirmConfig({
+      isOpen: true,
+      title: "Import from HR Portal",
+      message: "WARNING: Importing from the HR portal will clear ALL current employees and departments in this application and replace them with the imported records. This action cannot be undone. Do you want to proceed?",
+      confirmLabel: "Import",
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+        setSavingSettings(true);
+        setSettingsSuccessMessage(null);
+        try {
+          // First save settings so mapping preferences are preserved
+          await saveSettings({
+            mode: "Local",
+            hrPortalApiUrl: apiUrl,
+            hrPortalApiAuthHeaderName: authHeaderName,
+            hrPortalApiAuthHeaderValue: authHeaderValue,
+            idField,
+            fullNameField,
+            titleField,
+            companyField,
+            avatarUrlField,
+            managerIdField,
+            departmentIdField,
+            departmentNameField,
+            departmentColorField,
+            appEmailField,
+            hrmsEmailField
+          });
 
-    setSavingSettings(true);
-    setSettingsSuccessMessage(null);
-    try {
-      // First save settings so mapping preferences are preserved
-      await saveSettings({
-        mode: "Local",
-        hrPortalApiUrl: apiUrl,
-        hrPortalApiAuthHeaderName: authHeaderName,
-        hrPortalApiAuthHeaderValue: authHeaderValue,
+          // Then trigger backend import
+          const res = await importSettings({
+            apiUrl,
+            authHeaderName,
+            authHeaderValue,
+            idField,
+            fullNameField,
+            titleField,
+            companyField,
+            avatarUrlField,
+            managerIdField,
+            departmentIdField,
+            departmentNameField,
+            departmentColorField,
+            appEmailField,
+            hrmsEmailField
+          });
 
-        idField,
-        fullNameField,
-        titleField,
-        companyField,
-        avatarUrlField,
-        managerIdField,
-        departmentIdField,
-        departmentNameField,
-        departmentColorField,
-        appEmailField,
-        hrmsEmailField
-      });
-
-      // Then trigger backend import
-      const res = await importSettings({
-        apiUrl,
-        authHeaderName,
-        authHeaderValue,
-        idField,
-        fullNameField,
-        titleField,
-        companyField,
-        avatarUrlField,
-        managerIdField,
-        departmentIdField,
-        departmentNameField,
-        departmentColorField,
-        appEmailField,
-        hrmsEmailField
-      });
-
-      if (res.success) {
-        alert(res.message);
-        setActiveTab("employees");
-        await reload();
-      } else {
-        alert("Import failed: " + res.message);
+          if (res.success) {
+            alert(res.message);
+            setActiveTab("employees");
+            await reload();
+          } else {
+            alert("Import failed: " + res.message);
+          }
+        } catch (err: any) {
+          alert("Import request failed: " + (err.message ?? "unknown error"));
+        } finally {
+          setSavingSettings(false);
+        }
       }
-    } catch (err: any) {
-      alert("Import request failed: " + (err.message ?? "unknown error"));
-    } finally {
-      setSavingSettings(false);
-    }
+    });
   }
 
   const parseCSV = (text: string): Record<string, string>[] => {
@@ -404,31 +457,36 @@ export default function AdminPage() {
     }
   };
 
-  const handleImportCSV = async () => {
-    const confirmImport = confirm(
-      "WARNING: Importing from CSV will clear ALL current employees and departments in this application and replace them with the CSV records.\n\nThis action cannot be undone. Do you want to proceed?"
-    );
-    if (!confirmImport) return;
-
-    setImportingCSV(true);
-    setSettingsSuccessMessage(null);
-    try {
-      const res = await importBulkEmployees(csvParsedData);
-      if (res.success) {
-        setSettingsSuccessMessage(res.message);
-        setCsvRawRows([]);
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
+  const handleImportCSV = () => {
+    setConfirmConfig({
+      isOpen: true,
+      title: "Import from CSV",
+      message: "WARNING: Importing from CSV will clear ALL current employees and departments in this application and replace them with the CSV records. This action cannot be undone. Do you want to proceed?",
+      confirmLabel: "Import",
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+        setImportingCSV(true);
+        setSettingsSuccessMessage(null);
+        try {
+          const res = await importBulkEmployees(csvParsedData);
+          if (res.success) {
+            setSettingsSuccessMessage(res.message);
+            setCsvRawRows([]);
+            if (fileInputRef.current) {
+              fileInputRef.current.value = "";
+            }
+            await reload();
+          } else {
+            alert("Import failed: " + res.message);
+          }
+        } catch (err: any) {
+          alert("Bulk import failed: " + (err.message ?? "unknown error"));
+        } finally {
+          setImportingCSV(false);
         }
-        await reload();
-      } else {
-        alert("Import failed: " + res.message);
       }
-    } catch (err: any) {
-      alert("Bulk import failed: " + (err.message ?? "unknown error"));
-    } finally {
-      setImportingCSV(false);
-    }
+    });
   };
 
   async function handleSaveConfigOnly() {
@@ -522,11 +580,13 @@ export default function AdminPage() {
           <div className="flex-1 min-h-0 overflow-auto">
             <EmployeeTable
               employees={employees}
+              currentUserId={user?.id}
               onEdit={(emp) => {
                 setEditing(emp);
                 setDrawerOpen(true);
               }}
               onDelete={handleDelete}
+              onToggleAdmin={handleToggleAdmin}
             />
           </div>
 
@@ -901,6 +961,15 @@ export default function AdminPage() {
       )}
 
 
+      <ConfirmModal
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        confirmLabel={confirmConfig.confirmLabel}
+        isDestructive={confirmConfig.isDestructive}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

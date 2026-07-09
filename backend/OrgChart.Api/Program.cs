@@ -156,60 +156,7 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     
-    bool tableExists = false;
-    bool needsRecreate = false;
-    try
-    {
-        var conn = db.Database.GetDbConnection();
-        using (var cmd = conn.CreateCommand())
-        {
-            if (conn.State != System.Data.ConnectionState.Open) conn.Open();
-            if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
-            {
-                cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'AspNetUsers')";
-                tableExists = Convert.ToBoolean(cmd.ExecuteScalar());
-            }
-            else
-            {
-                cmd.CommandText = "SELECT OBJECT_ID(N'[AspNetUsers]', N'U')";
-                var res = cmd.ExecuteScalar();
-                tableExists = res != DBNull.Value && res != null;
-
-                if (tableExists)
-                {
-                    // Check if APPEmailField exists in local SQL Server table
-                    cmd.CommandText = "SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID(N'[DataSourceConfigs]') AND name = 'APPEmailField'";
-                    var count = Convert.ToInt32(cmd.ExecuteScalar());
-                    if (count == 0)
-                    {
-                        needsRecreate = true;
-                    }
-                }
-            }
-        }
-    }
-    catch
-    {
-        tableExists = false;
-    }
-
-    if (!tableExists || needsRecreate)
-    {
-        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
-        {
-            var sql = db.Database.GenerateCreateScript();
-            db.Database.ExecuteSqlRaw(sql);
-        }
-        else
-        {
-            db.Database.EnsureDeleted();
-            Microsoft.Data.SqlClient.SqlConnection.ClearAllPools();
-            db.Database.EnsureCreated();
-        }
-    }
-
-    // Ensure system settings schema and defaults are configured
-    SeedData.EnsureDataSourceConfigTableExists(db);
+    SeedData.ApplySafeMigrations(db);
     SeedData.SeedDefaultSettings(db);
 
     var config = db.DataSourceConfigs.FirstOrDefault();

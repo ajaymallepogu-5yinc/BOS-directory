@@ -14,6 +14,7 @@ public class AppDbContext : IdentityDbContext<Employee, IdentityRole<int>, int>
     public DbSet<DataSourceConfig> DataSourceConfigs => Set<DataSourceConfig>();
     public DbSet<OrgReporting> OrgReportings => Set<OrgReporting>();
     public DbSet<EmpDepartment> EmpDepartments => Set<EmpDepartment>();
+    public DbSet<Project> Projects => Set<Project>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -54,6 +55,14 @@ public class AppDbContext : IdentityDbContext<Employee, IdentityRole<int>, int>
                 .WithMany()
                 .HasForeignKey(o => o.ManagerId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Project>(entity =>
+        {
+            entity.HasOne(p => p.ProjectManager)
+                .WithMany()
+                .HasForeignKey(p => p.ProjectManagerId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

@@ -6,6 +6,7 @@ export interface OrgTreeNode {
   avatarUrl?: string | null;
   department: string;
   departmentColor: string;
+  cardColor?: string | null;
   totalReportCount: number;
   children: OrgTreeNode[];
 }
@@ -29,6 +30,8 @@ export interface Employee {
   department: string;
   appEmail: string;
   hrmsEmail?: string | null;
+  cardColor?: string | null;
+  isAdmin: boolean;
 }
 
 export interface ManagerOption {
@@ -46,6 +49,7 @@ export interface EmployeeFormValues {
   departmentId: number | null;
   appEmail: string;
   hrmsEmail?: string;
+  cardColor?: string;
 }
 
 export interface Settings {

@@ -14,6 +14,8 @@ public class EmployeeDto
     public string Department { get; set; } = string.Empty;
     public string AppEmail { get; set; } = string.Empty;
     public string? HrmsEmail { get; set; }
+    public string? CardColor { get; set; }
+    public bool IsAdmin { get; set; }
 }
 
 /// <summary>Lightweight record used to populate "reports to" dropdowns.</summary>

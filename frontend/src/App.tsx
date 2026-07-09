@@ -5,6 +5,7 @@ import CompanyTreePage from "./pages/CompanyTreePage";
 import DepartmentTreePage from "./pages/DepartmentTreePage";
 import RoleMappingPage from "./pages/RoleMappingPage";
 import LoginPage from "./pages/LoginPage";
+import ProjectsPage from "./pages/ProjectsPage";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
 // Layout wrapper to protect authenticated pages
@@ -62,6 +63,7 @@ export default function App() {
             <Route path="/" element={<CompanyTreePage />} />
             <Route path="/department" element={<DepartmentTreePage />} />
             <Route path="/role-mapping" element={<RoleMappingPage />} />
+            <Route path="/projects" element={<ProjectsPage />} />
             <Route element={<AdminRoute />}>
               <Route path="/admin" element={<AdminPage />} />
             </Route>

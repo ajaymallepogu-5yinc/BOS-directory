@@ -88,8 +88,8 @@ public static class SeedData
             db.Users.Add(ajay);
             db.SaveChanges();
 
-            if (employeeRoleObj != null)
-                db.UserRoles.Add(new Microsoft.AspNetCore.Identity.IdentityUserRole<int> { UserId = ajay.Id, RoleId = employeeRoleObj.Id });
+            if (adminRoleObj != null)
+                db.UserRoles.Add(new Microsoft.AspNetCore.Identity.IdentityUserRole<int> { UserId = ajay.Id, RoleId = adminRoleObj.Id });
             if (engineeringDept != null)
                 db.EmpDepartments.Add(new EmpDepartment { EmployeeId = ajay.Id, DepartmentId = engineeringDept.Id });
             if (sashank != null)
@@ -103,6 +103,21 @@ public static class SeedData
             ajay.Email = "ajay.mallepogu@5yinc.com";
             ajay.NormalizedEmail = "AJAY.MALLEPOGU@5YINC.COM";
             db.SaveChanges();
+
+            // Promote to Admin for local testing
+            if (adminRoleObj != null)
+            {
+                var isAlreadyAdmin = db.UserRoles.Any(ur => ur.UserId == ajay.Id && ur.RoleId == adminRoleObj.Id);
+                if (!isAlreadyAdmin)
+                {
+                    var currentRoles = db.UserRoles.Where(ur => ur.UserId == ajay.Id).ToList();
+                    db.UserRoles.RemoveRange(currentRoles);
+                    db.SaveChanges();
+
+                    db.UserRoles.Add(new Microsoft.AspNetCore.Identity.IdentityUserRole<int> { UserId = ajay.Id, RoleId = adminRoleObj.Id });
+                    db.SaveChanges();
+                }
+            }
         }
 
         // 5. Seed John Doe
@@ -220,6 +235,24 @@ public static class SeedData
         }
     }
 
+    public static void EnsureCardColorColumnExists(AppDbContext db)
+    {
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            var sql = @"ALTER TABLE ""AspNetUsers"" ADD COLUMN IF NOT EXISTS ""CardColor"" VARCHAR(50) NULL;";
+            db.Database.ExecuteSqlRaw(sql);
+        }
+        else
+        {
+            var sql = @"
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[AspNetUsers]') AND name = 'CardColor')
+                BEGIN
+                    ALTER TABLE [AspNetUsers] ADD [CardColor] nvarchar(50) NULL;
+                END";
+            db.Database.ExecuteSqlRaw(sql);
+        }
+    }
+
     public static void SeedDefaultSettings(AppDbContext db)
     {
         if (!db.DataSourceConfigs.Any())
@@ -246,4 +279,143 @@ public static class SeedData
         }
     }
 
+    public static void ApplySafeMigrations(AppDbContext db)
+    {
+        // 1. Check if AspNetUsers table exists
+        bool aspNetUsersExists = false;
+        try
+        {
+            var conn = db.Database.GetDbConnection();
+            using (var cmd = conn.CreateCommand())
+            {
+                if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+                if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+                {
+                    cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'AspNetUsers')";
+                    aspNetUsersExists = Convert.ToBoolean(cmd.ExecuteScalar());
+                }
+                else
+                {
+                    cmd.CommandText = "SELECT OBJECT_ID(N'[AspNetUsers]', N'U')";
+                    var res = cmd.ExecuteScalar();
+                    aspNetUsersExists = res != DBNull.Value && res != null;
+                }
+            }
+        }
+        catch
+        {
+            aspNetUsersExists = false;
+        }
+
+        // 2. Check if __EFMigrationsHistory exists
+        bool historyExists = false;
+        try
+        {
+            var conn = db.Database.GetDbConnection();
+            using (var cmd = conn.CreateCommand())
+            {
+                if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+                if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+                {
+                    cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '__EFMigrationsHistory')";
+                    historyExists = Convert.ToBoolean(cmd.ExecuteScalar());
+                }
+                else
+                {
+                    cmd.CommandText = "SELECT OBJECT_ID(N'[__EFMigrationsHistory]', N'U')";
+                    var res = cmd.ExecuteScalar();
+                    historyExists = res != DBNull.Value && res != null;
+                }
+            }
+        }
+        catch
+        {
+            historyExists = false;
+        }
+
+        // 3. If AspNetUsers exists but __EFMigrationsHistory does not:
+        // We create __EFMigrationsHistory and insert the Initial migration to prevent EF from trying to re-create existing tables.
+        if (aspNetUsersExists && !historyExists)
+        {
+            if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+            {
+                db.Database.ExecuteSqlRaw(@"
+                    CREATE TABLE ""__EFMigrationsHistory"" (
+                        ""MigrationId"" character varying(150) NOT NULL PRIMARY KEY,
+                        ""ProductVersion"" character varying(32) NOT NULL
+                    );
+                    INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                    VALUES ('20260707093420_Initial', '8.0.8');
+                ");
+            }
+            else
+            {
+                db.Database.ExecuteSqlRaw(@"
+                    CREATE TABLE [__EFMigrationsHistory] (
+                        [MigrationId] nvarchar(150) NOT NULL CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY,
+                        [ProductVersion] nvarchar(32) NOT NULL
+                    );
+                    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+                    VALUES ('20260707093420_Initial', '8.0.8');
+                ");
+            }
+        }
+
+        // 4. The generated migrations (Initial, AddProjects) were authored against SQL Server and
+        // use raw SQL Server types (nvarchar(max), bit, datetime2, etc.) that Postgres cannot parse.
+        // Running them for real against Postgres would crash the app on startup. Since the Initial
+        // migration is already bridged above, do the same for AddProjects: create the Projects table
+        // ourselves with correct Postgres types, then mark that migration as already-applied so
+        // Migrate() below never tries to execute the SQL-Server-flavored version against Postgres.
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            EnsureProjectsTableExistsForPostgres(db);
+        }
+
+        // 5. Run standard EF migrations. On SQL Server this applies Initial/AddProjects for real.
+        // On Postgres, both are already bridged above, so this is a no-op there.
+        db.Database.Migrate();
+    }
+
+    private static void EnsureProjectsTableExistsForPostgres(AppDbContext db)
+    {
+        bool projectsTableExists;
+        var conn = db.Database.GetDbConnection();
+        using (var cmd = conn.CreateCommand())
+        {
+            if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+            cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'Projects')";
+            projectsTableExists = Convert.ToBoolean(cmd.ExecuteScalar());
+        }
+
+        if (projectsTableExists)
+        {
+            return;
+        }
+
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE ""Projects"" (
+                ""Id"" SERIAL PRIMARY KEY,
+                ""Name"" TEXT NOT NULL,
+                ""ProjectManagerId"" INT NULL,
+                ""IsBillable"" BOOLEAN NOT NULL,
+                ""JiraBoardId"" TEXT NULL,
+                ""CreatedAt"" TIMESTAMP NOT NULL,
+                ""CreatedBy"" TEXT NULL,
+                ""UpdatedAt"" TIMESTAMP NULL,
+                ""UpdatedBy"" TEXT NULL,
+                CONSTRAINT ""FK_Projects_AspNetUsers_ProjectManagerId"" FOREIGN KEY (""ProjectManagerId"")
+                    REFERENCES ""AspNetUsers"" (""Id"") ON DELETE SET NULL
+            );
+            CREATE INDEX ""IX_Projects_ProjectManagerId"" ON ""Projects"" (""ProjectManagerId"");
+        ");
+
+        // Mark the AddProjects migration as already-applied so EF's real Migrate() call
+        // doesn't try to re-run its SQL-Server-flavored CreateTable against Postgres.
+        db.Database.ExecuteSqlRaw(@"
+            INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+            VALUES ('20260707093640_AddProjects', '8.0.8')
+            ON CONFLICT (""MigrationId"") DO NOTHING;
+        ");
+    }
 }
