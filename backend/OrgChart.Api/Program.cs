@@ -157,6 +157,7 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     
     SeedData.ApplySafeMigrations(db);
+    SeedData.EnsureCardColorColumnExists(db);
     SeedData.SeedDefaultSettings(db);
 
     var config = db.DataSourceConfigs.FirstOrDefault();
