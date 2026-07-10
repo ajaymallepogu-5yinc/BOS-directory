@@ -146,7 +146,16 @@ public class ProjectsController : ControllerBase
         List<JiraBoard> boards;
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, $"{jiraBaseUrl.TrimEnd('/')}/rest/agile/1.0/board?maxResults=100");
+            // Scoped service-account tokens are only recognized through Atlassian's shared
+            // platform gateway (api.atlassian.com), not a site's own domain - so resolve the
+            // site's Cloud ID first (a free, unauthenticated lookup) and route through that.
+            var cloudId = await ResolveCloudIdAsync(jiraBaseUrl);
+            if (string.IsNullOrWhiteSpace(cloudId))
+            {
+                return StatusCode(502, new { success = false, message = "Could not resolve the Jira site's Cloud ID. Verify the configured Jira URL." });
+            }
+
+            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.atlassian.com/ex/jira/{cloudId}/rest/agile/1.0/board?maxResults=100");
             var authBytes = Encoding.UTF8.GetBytes($"{jiraEmail}:{jiraApiToken}");
             request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -156,7 +165,7 @@ public class ProjectsController : ControllerBase
             {
                 // Deliberately don't forward Jira's response body - it could echo back request
                 // details. Only the status code is safe to surface.
-                return StatusCode(502, new { success = false, message = $"Jira request failed (HTTP {(int)response.StatusCode}). Verify the configured Jira URL and credentials." });
+                return StatusCode(502, new { success = false, message = $"Jira request failed (HTTP {(int)response.StatusCode}). Verify the configured Jira URL and credentials, and that the account has been granted access to a project." });
             }
 
             boards = new List<JiraBoard>();
@@ -214,6 +223,28 @@ public class ProjectsController : ControllerBase
                 : "No new Jira boards found. Database is already up to date.",
             syncedCount
         });
+    }
+
+    /// <summary>
+    /// Looks up a Jira Cloud site's Cloud ID from its domain via Atlassian's free,
+    /// unauthenticated tenant-info endpoint. Needed to call the api.atlassian.com gateway,
+    /// which is the only URL scoped service-account tokens are recognized against.
+    /// </summary>
+    private async Task<string?> ResolveCloudIdAsync(string jiraBaseUrl)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"{jiraBaseUrl.TrimEnd('/')}/_edge/tenant_info");
+            if (!response.IsSuccessStatusCode) return null;
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty("cloudId", out var cloudIdProp) ? cloudIdProp.GetString() : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private record JiraBoard(string Id, string Name);
