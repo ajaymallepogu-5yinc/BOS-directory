@@ -182,7 +182,7 @@ export default function ProjectsPage() {
   });
 
   return (
-    <div className="flex-1 bg-ink-50/20 p-8 overflow-y-auto">
+    <div className="h-full flex flex-col bg-ink-50/20 p-8 overflow-hidden">
       {/* Toast Notifications */}
       {successMsg && (
         <div className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 text-xs font-semibold shadow-lg animate-fade-in">
@@ -255,7 +255,8 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      {/* Table / List */}
+      {/* Table / List - the only part of the page that scrolls */}
+      <div className="flex-1 min-h-0">
       {loading ? (
         <div className="flex h-64 items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-ink-200 border-t-brand" />
@@ -273,11 +274,10 @@ export default function ProjectsPage() {
           </p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-ink-150 bg-white shadow-sm">
-          <div className="overflow-x-auto">
+        <div className="h-full overflow-auto scrollbar-none rounded-2xl border border-ink-150 bg-white shadow-sm">
             <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-ink-150 bg-ink-50/50 text-[10px] font-bold uppercase tracking-wider text-ink-500">
+              <thead className="sticky top-0 z-10">
+                <tr className="border-b border-ink-150 bg-ink-50 text-[10px] font-bold uppercase tracking-wider text-ink-500">
                   <th className="py-3 px-6">Project Name</th>
                   <th className="py-3 px-6">Project Manager</th>
                   <th className="py-3 px-6">Billing Type</th>
@@ -365,9 +365,9 @@ export default function ProjectsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
         </div>
       )}
+      </div>
 
       {/* Modal Overlay Dialog */}
       {isModalOpen && (
