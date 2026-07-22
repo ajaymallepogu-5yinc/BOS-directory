@@ -306,8 +306,8 @@ function Dropdown({
                   }}
                   className={`w-full rounded-lg px-3 py-1.5 text-xs font-semibold text-center transition-colors whitespace-nowrap ${
                     value === stickyOption.value
-                      ? "bg-brand text-white"
-                      : "bg-brand/10 text-brand border border-brand/20 hover:bg-brand/20 hover:border-brand/40"
+                      ? "bg-ink-700 text-white"
+                      : "bg-ink-100 text-ink-700 border border-ink-200 hover:bg-ink-200 hover:border-ink-300"
                   }`}
                 >
                   {stickyOption.label}
