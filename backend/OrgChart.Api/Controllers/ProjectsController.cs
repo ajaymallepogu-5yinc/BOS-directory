@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OrgChart.Domain;
 using OrgChart.Repositories.Data;
+using OrgChart.Services;
 using OrgChart.Services.Dtos;
 using System;
 using System.Collections.Generic;
@@ -38,6 +39,7 @@ public class ProjectsController : ControllerBase
     {
         var list = await _db.Projects
             .Include(p => p.ProjectManager)
+            .Include(p => p.FunctionalManager)
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync();
 
@@ -47,8 +49,11 @@ public class ProjectsController : ControllerBase
             Name = p.Name,
             ProjectManagerId = p.ProjectManagerId,
             ProjectManagerName = p.ProjectManager?.FullName,
+            FunctionalManagerId = p.FunctionalManagerId,
+            FunctionalManagerName = p.FunctionalManager?.FullName,
             IsBillable = p.IsBillable,
             JiraBoardId = p.JiraBoardId,
+            JiraProjectKey = p.JiraProjectKey,
             CreatedAt = p.CreatedAt,
             CreatedBy = p.CreatedBy
         }).ToList();
@@ -66,6 +71,7 @@ public class ProjectsController : ControllerBase
         {
             Name = dto.Name,
             ProjectManagerId = dto.ProjectManagerId,
+            FunctionalManagerId = dto.FunctionalManagerId,
             IsBillable = dto.IsBillable,
             JiraBoardId = dto.JiraBoardId,
             CreatedAt = DateTime.UtcNow,
@@ -75,10 +81,14 @@ public class ProjectsController : ControllerBase
         _db.Projects.Add(project);
         await _db.SaveChangesAsync();
 
-        // Load project manager name for returning
+        // Load manager names for returning
         if (project.ProjectManagerId.HasValue)
         {
             project.ProjectManager = await _db.Users.FirstOrDefaultAsync(u => u.Id == project.ProjectManagerId.Value);
+        }
+        if (project.FunctionalManagerId.HasValue)
+        {
+            project.FunctionalManager = await _db.Users.FirstOrDefaultAsync(u => u.Id == project.FunctionalManagerId.Value);
         }
 
         return CreatedAtAction(nameof(GetAll), new {}, new ProjectDto
@@ -87,6 +97,8 @@ public class ProjectsController : ControllerBase
             Name = project.Name,
             ProjectManagerId = project.ProjectManagerId,
             ProjectManagerName = project.ProjectManager?.FullName,
+            FunctionalManagerId = project.FunctionalManagerId,
+            FunctionalManagerName = project.FunctionalManager?.FullName,
             IsBillable = project.IsBillable,
             JiraBoardId = project.JiraBoardId,
             CreatedAt = project.CreatedAt,
@@ -105,6 +117,7 @@ public class ProjectsController : ControllerBase
 
         project.Name = dto.Name;
         project.ProjectManagerId = dto.ProjectManagerId;
+        project.FunctionalManagerId = dto.FunctionalManagerId;
         project.IsBillable = dto.IsBillable;
         project.JiraBoardId = dto.JiraBoardId;
         project.UpdatedAt = DateTime.UtcNow;
@@ -149,7 +162,7 @@ public class ProjectsController : ControllerBase
             // Scoped service-account tokens are only recognized through Atlassian's shared
             // platform gateway (api.atlassian.com), not a site's own domain - so resolve the
             // site's Cloud ID first (a free, unauthenticated lookup) and route through that.
-            var cloudId = await ResolveCloudIdAsync(jiraBaseUrl);
+            var cloudId = await JiraCloudResolver.ResolveCloudIdAsync(_httpClient, jiraBaseUrl);
             if (string.IsNullOrWhiteSpace(cloudId))
             {
                 return StatusCode(502, new { success = false, message = "Could not resolve the Jira site's Cloud ID. Verify the configured Jira URL." });
@@ -176,8 +189,30 @@ public class ProjectsController : ControllerBase
                 foreach (var board in values.EnumerateArray())
                 {
                     var id = board.GetProperty("id").GetRawText();
-                    var name = board.TryGetProperty("name", out var n) ? n.GetString() ?? $"Board {id}" : $"Board {id}";
-                    boards.Add(new JiraBoard(id, name));
+
+                    // Prefer the Space name (location.projectName) over the board's own
+                    // auto-generated name (e.g. "TB309 board") - falls back to the board
+                    // name if a board has no single Space, e.g. a cross-project filter board.
+                    string? name = null;
+                    string? projectKey = null;
+                    if (board.TryGetProperty("location", out var location))
+                    {
+                        if (location.TryGetProperty("projectName", out var projectName))
+                        {
+                            name = projectName.GetString();
+                        }
+                        if (location.TryGetProperty("projectKey", out var projectKeyProp))
+                        {
+                            projectKey = projectKeyProp.GetString();
+                        }
+                    }
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        name = board.TryGetProperty("name", out var n) ? n.GetString() : null;
+                    }
+                    name = string.IsNullOrWhiteSpace(name) ? $"Board {id}" : name;
+
+                    boards.Add(new JiraBoard(id, name, projectKey));
                 }
             }
         }
@@ -194,8 +229,8 @@ public class ProjectsController : ControllerBase
         var syncedCount = 0;
         foreach (var board in boards)
         {
-            var exists = await _db.Projects.AnyAsync(p => p.JiraBoardId == board.Id);
-            if (!exists)
+            var existing = await _db.Projects.FirstOrDefaultAsync(p => p.JiraBoardId == board.Id);
+            if (existing == null)
             {
                 _db.Projects.Add(new Project
                 {
@@ -203,14 +238,20 @@ public class ProjectsController : ControllerBase
                     ProjectManagerId = managerId,
                     IsBillable = true,
                     JiraBoardId = board.Id,
+                    JiraProjectKey = board.ProjectKey,
                     CreatedAt = DateTime.UtcNow,
                     CreatedBy = username
                 });
                 syncedCount++;
             }
+            else if (string.IsNullOrWhiteSpace(existing.JiraProjectKey) && !string.IsNullOrWhiteSpace(board.ProjectKey))
+            {
+                // Backfill the project key for boards synced before this field existed.
+                existing.JiraProjectKey = board.ProjectKey;
+            }
         }
 
-        if (syncedCount > 0)
+        if (_db.ChangeTracker.HasChanges())
         {
             await _db.SaveChangesAsync();
         }
@@ -225,27 +266,6 @@ public class ProjectsController : ControllerBase
         });
     }
 
-    /// <summary>
-    /// Looks up a Jira Cloud site's Cloud ID from its domain via Atlassian's free,
-    /// unauthenticated tenant-info endpoint. Needed to call the api.atlassian.com gateway,
-    /// which is the only URL scoped service-account tokens are recognized against.
-    /// </summary>
-    private async Task<string?> ResolveCloudIdAsync(string jiraBaseUrl)
-    {
-        try
-        {
-            var response = await _httpClient.GetAsync($"{jiraBaseUrl.TrimEnd('/')}/_edge/tenant_info");
-            if (!response.IsSuccessStatusCode) return null;
 
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
-            return doc.RootElement.TryGetProperty("cloudId", out var cloudIdProp) ? cloudIdProp.GetString() : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private record JiraBoard(string Id, string Name);
+    private record JiraBoard(string Id, string Name, string? ProjectKey);
 }

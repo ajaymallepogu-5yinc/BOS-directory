@@ -9,6 +9,7 @@ export interface UserSession {
   appEmail: string;
   department: string;
   isAdmin: boolean;
+  isManager: boolean;
 }
 
 export async function loginWithGoogle(idToken: string): Promise<UserSession> {

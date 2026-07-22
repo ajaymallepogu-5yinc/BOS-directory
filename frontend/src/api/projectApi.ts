@@ -5,8 +5,11 @@ export interface Project {
   name: string;
   projectManagerId?: number | null;
   projectManagerName?: string | null;
+  functionalManagerId?: number | null;
+  functionalManagerName?: string | null;
   isBillable: boolean;
   jiraBoardId?: string | null;
+  jiraProjectKey?: string | null;
   createdAt: string;
   createdBy?: string | null;
 }
@@ -14,6 +17,7 @@ export interface Project {
 export interface ProjectFormValues {
   name: string;
   projectManagerId: number | null;
+  functionalManagerId: number | null;
   isBillable: boolean;
   jiraBoardId?: string;
 }

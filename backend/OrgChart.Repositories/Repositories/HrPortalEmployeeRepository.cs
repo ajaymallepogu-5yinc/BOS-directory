@@ -215,7 +215,7 @@ public class HrPortalEmployeeRepository : IEmployeeRepository
     public Task<Employee?> UpdateAsync(int id, Employee updated) =>
         throw new NotSupportedException("HR portal mode is read-only. Edit employees in the HR system instead.");
 
-    public Task<bool> DeleteAsync(int id) =>
+    public Task<bool> DeleteAsync(int id, int? reassignManagerId) =>
         throw new NotSupportedException("HR portal mode is read-only. Remove employees in the HR system instead.");
 
     // ---- Parsing Helpers ----

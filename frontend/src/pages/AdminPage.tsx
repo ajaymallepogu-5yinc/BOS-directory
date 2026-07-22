@@ -11,10 +11,23 @@ import {
 } from "../api/employeeApi";
 import { fetchSettings, saveSettings, testSettings, importSettings } from "../api/settingsApi";
 import type { Department, Employee, EmployeeFormValues, ManagerOption, TestConnectionResult, BulkImportEmployee } from "../api/types";
-import EmployeeFormDrawer from "../components/Admin/EmployeeFormDrawer";
+import EmployeeFormDrawer, { CustomSelect } from "../components/Admin/EmployeeFormDrawer";
 import EmployeeTable from "../components/Admin/EmployeeTable";
 import { useAuth } from "../context/AuthContext";
 import ConfirmModal from "../components/Layout/ConfirmModal";
+
+// Backend error bodies aren't always a plain string or {message} - ASP.NET Core's [ApiController]
+// auto-validation returns {errors: {Field: ["reason"]}} instead, with no top-level message. Always
+// resolves to a string (or null) so it's never unsafe to pass straight into React as text.
+function extractErrorMessage(err: any): string | null {
+  const data = err?.response?.data;
+  if (typeof data === "string") return data;
+  if (typeof data?.message === "string") return data.message;
+  if (data?.errors && typeof data.errors === "object") {
+    return Object.values(data.errors).flat().join(" ");
+  }
+  return null;
+}
 
 export default function AdminPage() {
   const { user } = useAuth();
@@ -26,6 +39,12 @@ export default function AdminPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  function showSuccess(message: string) {
+    setSuccessMessage(message);
+    setTimeout(() => setSuccessMessage(null), 4000);
+  }
 
   // Reusable confirmation state
   const [confirmConfig, setConfirmConfig] = useState<{
@@ -41,6 +60,14 @@ export default function AdminPage() {
     message: "",
     onConfirm: () => {}
   });
+
+  // Delete-with-direct-reports state - asks who should manage the orphaned reports instead of
+  // silently re-assigning them (see AdminPage delete flow below).
+  const [reassignModal, setReassignModal] = useState<{
+    employee: Employee;
+    directReports: Employee[];
+    selectedManagerId: number | null;
+  } | null>(null);
 
   // Settings State
   const [apiUrl, setApiUrl] = useState<string>("");
@@ -208,8 +235,9 @@ export default function AdminPage() {
         await createEmployee(values);
       }
       await reload();
+      showSuccess(editing ? `Nice! ${values.fullName}'s details are all set.` : `Welcome aboard, ${values.fullName}!`);
     } catch (err: any) {
-      setErrorMessage("Something went wrong saving that employee.");
+      setErrorMessage(extractErrorMessage(err) || "Something went wrong saving that employee.");
       throw err;
     }
   }
@@ -230,6 +258,7 @@ export default function AdminPage() {
         try {
           await updateEmployeeAdminRole(employee.id, makingAdmin);
           await reload();
+          showSuccess(makingAdmin ? `${employee.fullName} just leveled up to Admin!` : `${employee.fullName}'s Admin access removed.`);
         } catch (err: any) {
           setErrorMessage(err.response?.data?.message || "Could not update that employee's Admin role.");
         }
@@ -238,22 +267,59 @@ export default function AdminPage() {
   }
 
   async function handleDelete(employee: Employee) {
-    setConfirmConfig({
-      isOpen: true,
-      title: "Delete Employee",
-      message: `Remove ${employee.fullName}? Their direct reports will be re-assigned to ${employee.managerName ?? "the top of the org"}.`,
-      confirmLabel: "Delete",
-      isDestructive: true,
-      onConfirm: async () => {
-        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-        try {
-          await deleteEmployee(employee.id);
-          await reload();
-        } catch (err: any) {
-          setErrorMessage("Could not delete employee record.");
+    const directReports = employees.filter((e) => e.managerId === employee.id);
+
+    // Nothing to reassign - the plain confirm is enough.
+    if (directReports.length === 0) {
+      setConfirmConfig({
+        isOpen: true,
+        title: "Delete Employee",
+        message: `Remove ${employee.fullName}? This action cannot be undone.`,
+        confirmLabel: "Delete",
+        isDestructive: true,
+        onConfirm: async () => {
+          setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+          try {
+            await deleteEmployee(employee.id);
+            await reload();
+            showSuccess(`Done! ${employee.fullName} has been removed.`);
+          } catch (err: any) {
+            setErrorMessage("Could not delete employee record.");
+          }
         }
-      }
+      });
+      return;
+    }
+
+    // Has direct reports - ask who should manage them, defaulting to this employee's own manager.
+    setReassignModal({
+      employee,
+      directReports,
+      selectedManagerId: employee.managerId ?? null
     });
+  }
+
+  async function handleConfirmReassignAndDelete() {
+    if (!reassignModal) return;
+    const { employee, directReports, selectedManagerId } = reassignModal;
+    setReassignModal(null);
+    try {
+      await deleteEmployee(employee.id, selectedManagerId);
+      await reload();
+
+      const promoted = directReports.find((r) => r.id === selectedManagerId);
+      const remainingCount = directReports.length - (promoted ? 1 : 0);
+      const remainingLabel = `${remainingCount} ${remainingCount === 1 ? "report" : "reports"}`;
+
+      if (promoted) {
+        showSuccess(`All set! ${promoted.fullName} just stepped up to manage ${remainingLabel}, and is now at the top of the org.`);
+      } else {
+        const newManagerName = managers.find((m) => m.id === selectedManagerId)?.fullName ?? "the top of the org";
+        showSuccess(`All set! ${remainingLabel} reassigned to ${newManagerName}.`);
+      }
+    } catch (err: any) {
+      setErrorMessage(err.response?.data?.message || "Could not delete employee record.");
+    }
   }
 
 
@@ -524,6 +590,19 @@ export default function AdminPage() {
 
   return (
     <div className="flex h-full flex-col overflow-y-auto px-6 py-6 bg-ink-50/30">
+      {/* Floating above everything, including an open drawer's backdrop (z-50) - an inline banner
+          here would render underneath that backdrop and be unreadable while the drawer is open. */}
+      {errorMessage && (
+        <div className="fixed top-4 right-4 z-[60] max-w-md rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800 shadow-lg animate-fade-in">
+          {errorMessage}
+        </div>
+      )}
+      {successMessage && (
+        <div className="fixed top-4 right-4 z-[60] max-w-md rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800 shadow-lg animate-fade-in">
+          {successMessage}
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
@@ -571,12 +650,6 @@ export default function AdminPage() {
       {/* Tab 1: Employees List (Always fully editable) */}
       {activeTab === "employees" && (
         <div className="flex-1 flex flex-col min-h-0">
-          {errorMessage && (
-            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
-              {errorMessage}
-            </div>
-          )}
-
           <div className="flex-1 min-h-0 overflow-auto">
             <EmployeeTable
               employees={employees}
@@ -960,6 +1033,73 @@ export default function AdminPage() {
         </div>
       )}
 
+
+      {reassignModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-900/40 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-sm rounded-2xl border border-ink-150 bg-white p-6 shadow-xl animate-slide-up">
+            <div className="flex items-start gap-3.5 mb-5">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-rose-50 border-rose-100 text-rose-600">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-black text-ink-900 leading-tight">Delete Employee</h3>
+                <p className="text-xs text-ink-500 mt-1.5 leading-relaxed">
+                  {reassignModal.employee.fullName} has {reassignModal.directReports.length}{" "}
+                  {reassignModal.directReports.length === 1 ? "direct report" : "direct reports"} (
+                  {reassignModal.directReports.map((r) => r.fullName).join(", ")}). Choose who should manage them
+                  after {reassignModal.employee.fullName} is removed.
+                </p>
+              </div>
+            </div>
+
+            <div className="mb-5">
+              <label className="block mb-1.5">
+                <span className="mb-1 block text-xs font-medium text-ink-600">New manager for their reports</span>
+                <CustomSelect
+                  value={reassignModal.selectedManagerId}
+                  onChange={(val) =>
+                    setReassignModal((prev) =>
+                      prev ? { ...prev, selectedManagerId: val !== null ? Number(val) : null } : prev
+                    )
+                  }
+                  options={managers
+                    .filter((m) => m.id !== reassignModal.employee.id)
+                    .map((m) => ({ value: m.id, label: `${m.fullName} — ${m.title}` }))}
+                  emptyLabel="No manager (top of the org)"
+                />
+              </label>
+              {(() => {
+                const promoted = reassignModal.directReports.find((r) => r.id === reassignModal.selectedManagerId);
+                return promoted ? (
+                  <p className="mt-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-150 rounded-lg px-3 py-2">
+                    {promoted.fullName} is one of the reports being reassigned - they'll manage the others, but will
+                    themselves become a root (no manager) since they can't report to themselves.
+                  </p>
+                ) : null;
+              })()}
+            </div>
+
+            <div className="flex justify-end gap-3 pt-3 border-t border-ink-150">
+              <button
+                type="button"
+                onClick={() => setReassignModal(null)}
+                className="py-2 px-4 rounded-xl border border-ink-200 bg-white text-xs font-semibold text-ink-700 hover:bg-ink-50 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmReassignAndDelete}
+                className="py-2 px-4 rounded-xl text-xs font-semibold text-white transition-all shadow-md cursor-pointer bg-rose-600 hover:bg-rose-500 shadow-rose-600/10"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmModal
         isOpen={confirmConfig.isOpen}

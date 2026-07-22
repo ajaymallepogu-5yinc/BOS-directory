@@ -9,8 +9,11 @@ public class ProjectDto
     public string Name { get; set; } = string.Empty;
     public int? ProjectManagerId { get; set; }
     public string? ProjectManagerName { get; set; }
+    public int? FunctionalManagerId { get; set; }
+    public string? FunctionalManagerName { get; set; }
     public bool IsBillable { get; set; }
     public string? JiraBoardId { get; set; }
+    public string? JiraProjectKey { get; set; }
     public DateTime CreatedAt { get; set; }
     public string? CreatedBy { get; set; }
 }
@@ -21,6 +24,8 @@ public class CreateProjectDto
     public string Name { get; set; } = string.Empty;
 
     public int? ProjectManagerId { get; set; }
+
+    public int? FunctionalManagerId { get; set; }
 
     public bool IsBillable { get; set; }
 

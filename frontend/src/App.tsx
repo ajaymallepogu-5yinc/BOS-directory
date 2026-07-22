@@ -6,6 +6,8 @@ import DepartmentTreePage from "./pages/DepartmentTreePage";
 import RoleMappingPage from "./pages/RoleMappingPage";
 import LoginPage from "./pages/LoginPage";
 import ProjectsPage from "./pages/ProjectsPage";
+import TimesheetPage from "./pages/TimesheetPage";
+import TeamApprovalsPage from "./pages/TeamApprovalsPage";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
 // Layout wrapper to protect authenticated pages
@@ -50,6 +52,15 @@ function AdminRoute() {
   return <Outlet />;
 }
 
+// Guard limiting a route to managers (has at least one direct report); everyone else is bounced
+function ManagerRoute() {
+  const { user } = useAuth();
+  if (!user?.isManager) {
+    return <Navigate to="/" replace />;
+  }
+  return <Outlet />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -64,6 +75,10 @@ export default function App() {
             <Route path="/department" element={<DepartmentTreePage />} />
             <Route path="/role-mapping" element={<RoleMappingPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/timesheet" element={<TimesheetPage />} />
+            <Route element={<ManagerRoute />}>
+              <Route path="/team-approvals" element={<TeamApprovalsPage />} />
+            </Route>
             <Route element={<AdminRoute />}>
               <Route path="/admin" element={<AdminPage />} />
             </Route>

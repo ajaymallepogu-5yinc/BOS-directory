@@ -25,6 +25,9 @@ public class Employee : IdentityUser<int>
     /// <summary>Optional custom color to override department card color.</summary>
     public string? CardColor { get; set; }
 
+    /// <summary>Jira accountId, resolved lazily by matching APPEmail against Jira's user search. Cached here to avoid re-resolving on every request.</summary>
+    public string? JiraAccountId { get; set; }
+
     public ICollection<EmpDepartment> EmpDepartments { get; set; } = new List<EmpDepartment>();
 
     // [NotMapped] Helpers: In-memory properties for mapping, parsing, and backwards compatibility.

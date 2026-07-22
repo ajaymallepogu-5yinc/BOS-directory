@@ -18,15 +18,18 @@ public class AuthController : ControllerBase
     private readonly UserManager<Employee> _userManager;
     private readonly SignInManager<Employee> _signInManager;
     private readonly IConfiguration _config;
+    private readonly AppDbContext _db;
 
     public AuthController(
         UserManager<Employee> userManager,
         SignInManager<Employee> signInManager,
-        IConfiguration config)
+        IConfiguration config,
+        AppDbContext db)
     {
         _userManager = userManager;
         _signInManager = signInManager;
         _config = config;
+        _db = db;
     }
 
     [HttpPost("google-login")]
@@ -79,6 +82,8 @@ public class AuthController : ControllerBase
             // Determine if admin (strictly based on Admin identity role)
             var roles = await _userManager.GetRolesAsync(employee);
             var isAdmin = roles.Contains("Admin");
+            var isManager = await _db.OrgReportings.AnyAsync(o => o.ManagerId == employee.Id && o.ReportingType == "Direct")
+            || await _db.Projects.AnyAsync(p => p.FunctionalManagerId == employee.Id);
 
             return Ok(new UserSessionDto
             {
@@ -89,7 +94,8 @@ public class AuthController : ControllerBase
                 AvatarUrl = employee.AvatarUrl ?? payload.Picture,
                 AppEmail = employee.APPEmail,
                 Department = employee.EmpDepartments.FirstOrDefault()?.Department?.Name ?? "General",
-                IsAdmin = isAdmin
+                IsAdmin = isAdmin,
+                IsManager = isManager
             });
         }
         catch (InvalidJwtException)
@@ -135,6 +141,8 @@ public class AuthController : ControllerBase
 
         var roles = await _userManager.GetRolesAsync(employee);
         var isAdmin = roles.Contains("Admin");
+        var isManager = await _db.OrgReportings.AnyAsync(o => o.ManagerId == employee.Id && o.ReportingType == "Direct")
+            || await _db.Projects.AnyAsync(p => p.FunctionalManagerId == employee.Id);
 
         return Ok(new UserSessionDto
         {
@@ -145,7 +153,8 @@ public class AuthController : ControllerBase
             AvatarUrl = employee.AvatarUrl,
             AppEmail = employee.APPEmail,
             Department = employee.EmpDepartments.FirstOrDefault()?.Department?.Name ?? "General",
-            IsAdmin = isAdmin
+            IsAdmin = isAdmin,
+            IsManager = isManager
         });
     }
 }
@@ -166,4 +175,5 @@ public class UserSessionDto
     public string AppEmail { get; set; } = string.Empty;
     public string Department { get; set; } = string.Empty;
     public bool IsAdmin { get; set; }
+    public bool IsManager { get; set; }
 }

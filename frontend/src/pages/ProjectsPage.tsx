@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { fetchEmployees } from "../api/employeeApi";
 import ConfirmModal from "../components/Layout/ConfirmModal";
+import { CustomSelect } from "../components/Admin/EmployeeFormDrawer";
 import {
   fetchProjects,
   createProject,
@@ -32,9 +33,9 @@ export default function ProjectsPage() {
   // Form states
   const [formName, setFormName] = useState("");
   const [formManagerId, setFormManagerId] = useState<number | null>(null);
+  const [formFunctionalManagerId, setFormFunctionalManagerId] = useState<number | null>(null);
   const [formIsBillable, setFormIsBillable] = useState(false);
   const [formJiraId, setFormJiraId] = useState("");
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   // Confirm delete states
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -61,6 +62,17 @@ export default function ProjectsPage() {
     }
   };
 
+  // Re-fetches the list without toggling the full-page loading spinner, so actions
+  // like delete/create/sync update the table smoothly instead of flashing it away.
+  const refreshProjects = async () => {
+    try {
+      const projList = await fetchProjects();
+      setProjects(projList);
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.message || "Failed to refresh projects data.");
+    }
+  };
+
   const showNotification = (type: "success" | "error", message: string) => {
     if (type === "success") {
       setSuccessMsg(message);
@@ -75,9 +87,9 @@ export default function ProjectsPage() {
     setEditingProject(null);
     setFormName("");
     setFormManagerId(null);
+    setFormFunctionalManagerId(null);
     setFormIsBillable(false);
     setFormJiraId("");
-    setIsDropdownOpen(false);
     setIsModalOpen(true);
   };
 
@@ -85,9 +97,9 @@ export default function ProjectsPage() {
     setEditingProject(project);
     setFormName(project.name);
     setFormManagerId(project.projectManagerId || null);
+    setFormFunctionalManagerId(project.functionalManagerId || null);
     setFormIsBillable(project.isBillable);
     setFormJiraId(project.jiraBoardId || "");
-    setIsDropdownOpen(false);
     setIsModalOpen(true);
   };
 
@@ -103,6 +115,7 @@ export default function ProjectsPage() {
       const values: ProjectFormValues = {
         name: formName.trim(),
         projectManagerId: formManagerId,
+        functionalManagerId: formFunctionalManagerId,
         isBillable: formIsBillable,
         jiraBoardId: formJiraId.trim() || undefined
       };
@@ -116,7 +129,7 @@ export default function ProjectsPage() {
       }
 
       setIsModalOpen(false);
-      await loadData();
+      await refreshProjects();
     } catch (err: any) {
       showNotification("error", err.response?.data?.message || "Failed to save project.");
     } finally {
@@ -135,7 +148,7 @@ export default function ProjectsPage() {
     try {
       await deleteProject(projectToDelete);
       showNotification("success", "Project deleted successfully.");
-      await loadData();
+      await refreshProjects();
     } catch (err: any) {
       showNotification("error", err.response?.data?.message || "Failed to delete project.");
     } finally {
@@ -150,7 +163,7 @@ export default function ProjectsPage() {
       const result = await syncJiraProjects();
       if (result.success) {
         showNotification("success", result.message);
-        await loadData();
+        await refreshProjects();
       } else {
         showNotification("error", result.message);
       }
@@ -177,6 +190,7 @@ export default function ProjectsPage() {
     return (
       p.name.toLowerCase().includes(term) ||
       (p.projectManagerName && p.projectManagerName.toLowerCase().includes(term)) ||
+      (p.functionalManagerName && p.functionalManagerName.toLowerCase().includes(term)) ||
       (p.jiraBoardId && p.jiraBoardId.toLowerCase().includes(term))
     );
   });
@@ -291,16 +305,21 @@ export default function ProjectsPage() {
                   <tr key={project.id} className="hover:bg-ink-50/30 transition-all duration-150">
                     <td className="py-4.5 px-6 font-semibold text-ink-900">{project.name}</td>
                     <td className="py-4.5 px-6">
-                      {project.projectManagerName ? (
-                        <div className="flex items-center gap-2.5">
-                          <div className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold text-white bg-indigo-500 shrink-0">
-                            {getInitials(project.projectManagerName)}
+                      <div className="flex flex-col gap-1">
+                        {project.projectManagerName ? (
+                          <div className="flex items-center gap-2.5">
+                            <div className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold text-white bg-indigo-500 shrink-0">
+                              {getInitials(project.projectManagerName)}
+                            </div>
+                            <span className="font-medium text-ink-800">{project.projectManagerName}</span>
                           </div>
-                          <span className="font-medium text-ink-800">{project.projectManagerName}</span>
-                        </div>
-                      ) : (
-                        <span className="text-ink-400 italic">Unassigned</span>
-                      )}
+                        ) : (
+                          <span className="text-ink-400 italic">Unassigned</span>
+                        )}
+                        {project.functionalManagerName && (
+                          <span className="text-[10px] text-ink-400 pl-9">Functional: {project.functionalManagerName}</span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-4.5 px-6">
                       {project.isBillable ? (
@@ -401,53 +420,27 @@ export default function ProjectsPage() {
                 />
               </div>
 
-              {/* Project Manager Custom Select */}
-              <div className="flex flex-col gap-1.5 relative">
+              {/* Project Manager */}
+              <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-ink-500 uppercase tracking-wide">Project Manager</label>
-                <button
-                  type="button"
-                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                  className="flex items-center justify-between rounded-xl border border-ink-200 px-3.5 py-2.5 text-xs text-ink-800 bg-white hover:border-ink-300 focus:border-brand focus:outline-none text-left"
-                >
-                  <span className="truncate">
-                    {formManagerId 
-                      ? employees.find(e => e.id === formManagerId)?.fullName + " (" + employees.find(e => e.id === formManagerId)?.title + ")"
-                      : "Unassigned"}
-                  </span>
-                  <svg className={`h-4 w-4 text-ink-400 shrink-0 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
+                <CustomSelect
+                  value={formManagerId}
+                  onChange={(val) => setFormManagerId(val !== null ? Number(val) : null)}
+                  options={employees.map((e) => ({ value: e.id, label: `${e.fullName} (${e.title})` }))}
+                  emptyLabel="Unassigned"
+                />
+              </div>
 
-                {isDropdownOpen && (
-                  <>
-                    {/* Background overlay to close on clicking outside */}
-                    <div className="fixed inset-0 z-10" onClick={() => setIsDropdownOpen(false)} />
-                    <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-52 overflow-y-auto rounded-xl border border-ink-150 bg-white py-1 shadow-lg animate-fade-in divide-y divide-ink-50">
-                      <div
-                        onClick={() => {
-                          setFormManagerId(null);
-                          setIsDropdownOpen(false);
-                        }}
-                        className={`px-3.5 py-2.5 text-xs cursor-pointer hover:bg-brand/10 transition-colors ${!formManagerId ? "bg-brand/5 font-semibold text-brand" : "text-ink-700"}`}
-                      >
-                        Unassigned
-                      </div>
-                      {employees.map((emp) => (
-                        <div
-                          key={emp.id}
-                          onClick={() => {
-                            setFormManagerId(emp.id);
-                            setIsDropdownOpen(false);
-                          }}
-                          className={`px-3.5 py-2.5 text-xs cursor-pointer hover:bg-brand/10 transition-colors ${formManagerId === emp.id ? "bg-brand/5 font-semibold text-brand" : "text-ink-700"}`}
-                        >
-                          {emp.fullName} <span className="text-ink-400 text-[10px]">({emp.title})</span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
+              {/* Functional Manager - separate from Project Manager; authorizes timesheet
+                  approvals for entries logged against this project */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold text-ink-500 uppercase tracking-wide">Functional Manager (optional)</label>
+                <CustomSelect
+                  value={formFunctionalManagerId}
+                  onChange={(val) => setFormFunctionalManagerId(val !== null ? Number(val) : null)}
+                  options={employees.map((e) => ({ value: e.id, label: `${e.fullName} (${e.title})` }))}
+                  emptyLabel="Unassigned"
+                />
               </div>
 
               {/* Is Billable Toggle */}

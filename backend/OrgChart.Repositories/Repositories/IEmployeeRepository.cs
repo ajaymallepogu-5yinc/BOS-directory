@@ -21,7 +21,10 @@ public interface IEmployeeRepository
 
     Task<Employee> AddAsync(Employee employee);
     Task<Employee?> UpdateAsync(int id, Employee updated);
-    Task<bool> DeleteAsync(int id);
+
+    /// <summary>Deletes the employee. Their direct/functional reports are re-parented onto
+    /// reassignManagerId (or become roots if null) rather than silently orphaned.</summary>
+    Task<bool> DeleteAsync(int id, int? reassignManagerId);
 }
 
 public interface IDepartmentRepository

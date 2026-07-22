@@ -216,14 +216,19 @@ public class EmployeesController : ControllerBase
         return Ok(new { isAdmin = dto.IsAdmin });
     }
 
+    /// <summary>DELETE /api/employees/5?reassignManagerId=3 - reassignManagerId re-parents this
+    /// employee's direct/functional reports; omit it to leave them with no manager instead.</summary>
     [HttpDelete("{id:int}")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> Delete(int id)
+    public async Task<IActionResult> Delete(int id, [FromQuery] int? reassignManagerId)
     {
         if (!_employees.SupportsWrites)
             return Conflict("Employees are sourced from the HR portal in this environment. Remove the employee there instead.");
 
-        var ok = await _employees.DeleteAsync(id);
+        if (reassignManagerId == id)
+            return BadRequest(new { message = "An employee cannot be reassigned to report to themselves." });
+
+        var ok = await _employees.DeleteAsync(id, reassignManagerId);
         if (!ok) return NotFound();
         return NoContent();
     }

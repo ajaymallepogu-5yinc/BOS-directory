@@ -185,37 +185,26 @@ public class EfEmployeeRepository : IEmployeeRepository
         return existing;
     }
 
-    public async Task<bool> DeleteAsync(int id)
+    public async Task<bool> DeleteAsync(int id, int? reassignManagerId)
     {
         var existing = await _db.Employees.FirstOrDefaultAsync(e => e.Id == id);
         if (existing is null) return false;
 
-        // Remove matrix reporting records referring to this employee
-        var reportings = await _db.OrgReportings
-            .Where(o => o.EmployeeId == id || o.ManagerId == id)
-            .ToListAsync();
-        _db.OrgReportings.RemoveRange(reportings);
-
-        // Remove EmpDepartment associations
-        var depts = await _db.EmpDepartments.Where(ed => ed.EmployeeId == id).ToListAsync();
-        _db.EmpDepartments.RemoveRange(depts);
-
-        await _db.SaveChangesAsync();
-
-        // Re-parent direct reports in OrgReporting to the deleted person's own manager instead of orphaning them.
-        var directReportOfThisEmployee = await _db.OrgReportings
-            .FirstOrDefaultAsync(o => o.EmployeeId == id && o.ReportingType == "Direct");
-        var myManagerId = directReportOfThisEmployee?.ManagerId;
-
-        var myDirectReports = await _db.OrgReportings
-            .Where(o => o.ManagerId == id && o.ReportingType == "Direct")
+        // Re-parent this employee's own direct/functional reports onto reassignManagerId (chosen by
+        // the caller, e.g. an admin prompt) instead of orphaning them - must happen BEFORE the report
+        // rows below are deleted, otherwise there's nothing left to re-parent.
+        var myReports = await _db.OrgReportings
+            .Where(o => o.ManagerId == id && (o.ReportingType == "Direct" || o.ReportingType == "Functional"))
             .ToListAsync();
 
-        foreach (var report in myDirectReports)
+        foreach (var report in myReports)
         {
-            if (myManagerId.HasValue)
+            // reassignManagerId is allowed to be one of this employee's own direct reports
+            // (promoting them to manage their former siblings) - but that promoted person's own
+            // row can't be re-pointed at themselves, so it's dropped instead, making them a root.
+            if (reassignManagerId.HasValue && report.EmployeeId != reassignManagerId.Value)
             {
-                report.ManagerId = myManagerId.Value;
+                report.ManagerId = reassignManagerId.Value;
             }
             else
             {
@@ -223,10 +212,16 @@ public class EfEmployeeRepository : IEmployeeRepository
             }
         }
 
-        var myFunctionalReports = await _db.OrgReportings
-            .Where(o => o.ManagerId == id && o.ReportingType == "Functional")
+        // Remove this employee's own reporting link(s) - the rows above (where they're the manager)
+        // are handled separately so myReports isn't touched by this broader EmployeeId-side match.
+        var ownReportingLinks = await _db.OrgReportings
+            .Where(o => o.EmployeeId == id)
             .ToListAsync();
-        _db.OrgReportings.RemoveRange(myFunctionalReports);
+        _db.OrgReportings.RemoveRange(ownReportingLinks);
+
+        // Remove EmpDepartment associations
+        var depts = await _db.EmpDepartments.Where(ed => ed.EmployeeId == id).ToListAsync();
+        _db.EmpDepartments.RemoveRange(depts);
 
         _db.Employees.Remove(existing);
         await _db.SaveChangesAsync();

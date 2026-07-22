@@ -175,7 +175,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function CustomSelect({
+export function CustomSelect({
   value,
   onChange,
   options,
@@ -226,18 +226,16 @@ function CustomSelect({
       {/* Dropdown Menu */}
       {isOpen && (
         <div className="absolute left-0 mt-1 z-50 w-full rounded-lg border border-ink-200 bg-white shadow-lg overflow-hidden flex flex-col max-h-60">
-          {/* Search Box if list is long */}
-          {options.length > 5 && (
-            <div className="border-b border-ink-100 p-2 bg-ink-50/20">
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search..."
-                className="w-full rounded-md border border-ink-200 px-2 py-1 text-[11px] focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-              />
-            </div>
-          )}
+          {/* Search box - always available, not just for long lists */}
+          <div className="border-b border-ink-100 p-2 bg-ink-50/20">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search..."
+              className="w-full rounded-md border border-ink-200 px-2 py-1 text-[11px] focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            />
+          </div>
 
           {/* Options List */}
           <div className="overflow-y-auto py-1 max-h-48 divide-y divide-ink-50/50">

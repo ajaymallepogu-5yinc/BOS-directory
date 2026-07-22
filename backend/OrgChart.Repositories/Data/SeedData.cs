@@ -179,6 +179,37 @@ public static class SeedData
                 db.OrgReportings.Add(new OrgReporting { EmployeeId = jane.Id, ManagerId = sashank.Id, ReportingType = "Direct" });
             db.SaveChanges();
         }
+
+        // 7. Seed Suman - reports to Ajay. Uses a real Gmail account (not a 5yinc address) so it can be
+        // logged into locally with a second Google account, for testing the Timesheet submit/approve flow.
+        var suman = db.Users.FirstOrDefault(u => u.FullName == "Suman");
+        if (suman == null)
+        {
+            suman = new Employee
+            {
+                UserName = "ajaymallepogu871@gmail.com",
+                NormalizedUserName = "AJAYMALLEPOGU871@GMAIL.COM",
+                Email = "ajaymallepogu871@gmail.com",
+                NormalizedEmail = "AJAYMALLEPOGU871@GMAIL.COM",
+                APPEmail = "ajaymallepogu871@gmail.com",
+                FullName = "Suman",
+                Title = "Software Engineer",
+                Company = "5yinc",
+                EmailConfirmed = true,
+                SecurityStamp = System.Guid.NewGuid().ToString()
+            };
+            suman.PasswordHash = hasher.HashPassword(suman, "Password123!");
+            db.Users.Add(suman);
+            db.SaveChanges();
+
+            if (employeeRoleObj != null)
+                db.UserRoles.Add(new Microsoft.AspNetCore.Identity.IdentityUserRole<int> { UserId = suman.Id, RoleId = employeeRoleObj.Id });
+            if (engineeringDept != null)
+                db.EmpDepartments.Add(new EmpDepartment { EmployeeId = suman.Id, DepartmentId = engineeringDept.Id });
+            if (ajay != null)
+                db.OrgReportings.Add(new OrgReporting { EmployeeId = suman.Id, ManagerId = ajay.Id, ReportingType = "Direct" });
+            db.SaveChanges();
+        }
     }
 
     public static void EnsureDataSourceConfigTableExists(AppDbContext db)
@@ -248,6 +279,119 @@ public static class SeedData
                 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[AspNetUsers]') AND name = 'CardColor')
                 BEGIN
                     ALTER TABLE [AspNetUsers] ADD [CardColor] nvarchar(50) NULL;
+                END";
+            db.Database.ExecuteSqlRaw(sql);
+        }
+    }
+
+    public static void EnsureJiraIdentityColumnsExist(AppDbContext db)
+    {
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""AspNetUsers"" ADD COLUMN IF NOT EXISTS ""JiraAccountId"" VARCHAR(100) NULL;");
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Projects"" ADD COLUMN IF NOT EXISTS ""JiraProjectKey"" VARCHAR(50) NULL;");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[AspNetUsers]') AND name = 'JiraAccountId')
+                BEGIN
+                    ALTER TABLE [AspNetUsers] ADD [JiraAccountId] nvarchar(100) NULL;
+                END");
+            db.Database.ExecuteSqlRaw(@"
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Projects]') AND name = 'JiraProjectKey')
+                BEGIN
+                    ALTER TABLE [Projects] ADD [JiraProjectKey] nvarchar(50) NULL;
+                END");
+        }
+    }
+
+    // ponytail: plain nullable column, no DB-level FK constraint (unlike ProjectManagerId, which got
+    // one from the original migration) - if an employee who's a FunctionalManager gets deleted, this
+    // column is left dangling rather than auto-nulled. Add a real FK (or app-level cleanup alongside
+    // EfEmployeeRepository.DeleteAsync) if that turns out to matter.
+    public static void EnsureFunctionalManagerColumnExists(AppDbContext db)
+    {
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Projects"" ADD COLUMN IF NOT EXISTS ""FunctionalManagerId"" INT NULL;");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Projects]') AND name = 'FunctionalManagerId')
+                BEGIN
+                    ALTER TABLE [Projects] ADD [FunctionalManagerId] int NULL;
+                END");
+        }
+    }
+
+    public static void EnsureTimesheetEntriesTableExists(AppDbContext db)
+    {
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            var sql = @"
+                CREATE TABLE IF NOT EXISTS ""TimesheetEntries"" (
+                    ""Id"" SERIAL PRIMARY KEY,
+                    ""EmployeeId"" INT NOT NULL,
+                    ""ProjectId"" INT NULL,
+                    ""JiraIssueKey"" VARCHAR(50) NULL,
+                    ""JiraIssueSummary"" TEXT NULL,
+                    ""TaskDescription"" TEXT NULL,
+                    ""WorkDate"" DATE NOT NULL,
+                    ""HoursSpent"" DECIMAL(5,2) NOT NULL,
+                    ""Comment"" TEXT NULL,
+                    ""Status"" VARCHAR(20) NOT NULL DEFAULT 'Pending',
+                    ""ReviewerComment"" TEXT NULL,
+                    ""ReviewedByUserId"" INT NULL,
+                    ""ReviewedAt"" TIMESTAMP NULL,
+                    ""CreatedAt"" TIMESTAMP NOT NULL,
+                    ""UpdatedAt"" TIMESTAMP NULL,
+                    CONSTRAINT ""FK_TimesheetEntries_AspNetUsers_EmployeeId"" FOREIGN KEY (""EmployeeId"")
+                        REFERENCES ""AspNetUsers"" (""Id"") ON DELETE CASCADE,
+                    CONSTRAINT ""FK_TimesheetEntries_Projects_ProjectId"" FOREIGN KEY (""ProjectId"")
+                        REFERENCES ""Projects"" (""Id"") ON DELETE SET NULL,
+                    CONSTRAINT ""FK_TimesheetEntries_AspNetUsers_ReviewedByUserId"" FOREIGN KEY (""ReviewedByUserId"")
+                        REFERENCES ""AspNetUsers"" (""Id"") ON DELETE NO ACTION
+                );
+                CREATE INDEX IF NOT EXISTS ""IX_TimesheetEntries_EmployeeId"" ON ""TimesheetEntries"" (""EmployeeId"");
+                CREATE INDEX IF NOT EXISTS ""IX_TimesheetEntries_ProjectId"" ON ""TimesheetEntries"" (""ProjectId"");
+                CREATE INDEX IF NOT EXISTS ""IX_TimesheetEntries_ReviewedByUserId"" ON ""TimesheetEntries"" (""ReviewedByUserId"");
+            ";
+            db.Database.ExecuteSqlRaw(sql);
+        }
+        else
+        {
+            var sql = @"
+                IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[TimesheetEntries]') AND type in (N'U'))
+                BEGIN
+                    CREATE TABLE [TimesheetEntries] (
+                        [Id] int IDENTITY(1,1) NOT NULL,
+                        [EmployeeId] int NOT NULL,
+                        [ProjectId] int NULL,
+                        [JiraIssueKey] nvarchar(50) NULL,
+                        [JiraIssueSummary] nvarchar(max) NULL,
+                        [TaskDescription] nvarchar(max) NULL,
+                        [WorkDate] date NOT NULL,
+                        [HoursSpent] decimal(5,2) NOT NULL,
+                        [Comment] nvarchar(max) NULL,
+                        [Status] nvarchar(20) NOT NULL DEFAULT 'Pending',
+                        [ReviewerComment] nvarchar(max) NULL,
+                        [ReviewedByUserId] int NULL,
+                        [ReviewedAt] datetime2 NULL,
+                        [CreatedAt] datetime2 NOT NULL,
+                        [UpdatedAt] datetime2 NULL,
+                        CONSTRAINT [PK_TimesheetEntries] PRIMARY KEY CLUSTERED ([Id] ASC),
+                        CONSTRAINT [FK_TimesheetEntries_AspNetUsers_EmployeeId] FOREIGN KEY ([EmployeeId])
+                            REFERENCES [AspNetUsers] ([Id]) ON DELETE CASCADE,
+                        CONSTRAINT [FK_TimesheetEntries_Projects_ProjectId] FOREIGN KEY ([ProjectId])
+                            REFERENCES [Projects] ([Id]) ON DELETE SET NULL,
+                        CONSTRAINT [FK_TimesheetEntries_AspNetUsers_ReviewedByUserId] FOREIGN KEY ([ReviewedByUserId])
+                            REFERENCES [AspNetUsers] ([Id]) ON DELETE NO ACTION
+                    );
+                    CREATE INDEX [IX_TimesheetEntries_EmployeeId] ON [TimesheetEntries] ([EmployeeId]);
+                    CREATE INDEX [IX_TimesheetEntries_ProjectId] ON [TimesheetEntries] ([ProjectId]);
+                    CREATE INDEX [IX_TimesheetEntries_ReviewedByUserId] ON [TimesheetEntries] ([ReviewedByUserId]);
                 END";
             db.Database.ExecuteSqlRaw(sql);
         }

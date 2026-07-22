@@ -15,6 +15,7 @@ public class AppDbContext : IdentityDbContext<Employee, IdentityRole<int>, int>
     public DbSet<OrgReporting> OrgReportings => Set<OrgReporting>();
     public DbSet<EmpDepartment> EmpDepartments => Set<EmpDepartment>();
     public DbSet<Project> Projects => Set<Project>();
+    public DbSet<TimesheetEntry> TimesheetEntries => Set<TimesheetEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -63,6 +64,34 @@ public class AppDbContext : IdentityDbContext<Employee, IdentityRole<int>, int>
                 .WithMany()
                 .HasForeignKey(p => p.ProjectManagerId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(p => p.FunctionalManager)
+                .WithMany()
+                .HasForeignKey(p => p.FunctionalManagerId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<TimesheetEntry>(entity =>
+        {
+            entity.Property(t => t.HoursSpent).HasColumnType("decimal(5,2)");
+
+            entity.HasOne(t => t.Employee)
+                .WithMany()
+                .HasForeignKey(t => t.EmployeeId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(t => t.Project)
+                .WithMany()
+                .HasForeignKey(t => t.ProjectId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Restrict (not SetNull/Cascade): TimesheetEntry already has a cascading path to
+            // AspNetUsers via EmployeeId. A second cascading FK to the same table triggers
+            // SQL Server's "multiple cascade paths" error - the same issue fixed on OrgReporting.
+            entity.HasOne(t => t.ReviewedByUser)
+                .WithMany()
+                .HasForeignKey(t => t.ReviewedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }
