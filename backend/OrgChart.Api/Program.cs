@@ -159,8 +159,8 @@ using (var scope = app.Services.CreateScope())
     SeedData.ApplySafeMigrations(db);
     SeedData.EnsureCardColorColumnExists(db);
     SeedData.EnsureJiraIdentityColumnsExist(db);
-    SeedData.EnsureFunctionalManagerColumnExists(db);
-    SeedData.EnsureTimesheetEntriesTableExists(db);
+    SeedData.EnsureFunctionalManagerColumnDropped(db);
+    SeedData.EnsureTimesheetTablesExist(db);
     SeedData.SeedDefaultSettings(db);
 
     var config = db.DataSourceConfigs.FirstOrDefault();

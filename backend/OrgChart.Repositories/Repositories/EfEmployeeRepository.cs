@@ -53,6 +53,9 @@ public class EfEmployeeRepository : IEmployeeRepository
             var directReport = await _db.OrgReportings.FirstOrDefaultAsync(o => o.EmployeeId == id && o.ReportingType == "Direct");
             emp.ManagerId = directReport?.ManagerId;
 
+            var functionalReport = await _db.OrgReportings.FirstOrDefaultAsync(o => o.EmployeeId == id && o.ReportingType == "Functional");
+            emp.FunctionalManagerId = functionalReport?.ManagerId;
+
             var primaryDept = emp.EmpDepartments.FirstOrDefault();
             if (primaryDept != null)
             {
@@ -112,6 +115,17 @@ public class EfEmployeeRepository : IEmployeeRepository
                 EmployeeId = employee.Id,
                 ManagerId = employee.ManagerId.Value,
                 ReportingType = "Direct"
+            });
+        }
+
+        // Save functional manager link (dotted-line, independent of the direct manager above)
+        if (employee.FunctionalManagerId.HasValue)
+        {
+            _db.OrgReportings.Add(new OrgReporting
+            {
+                EmployeeId = employee.Id,
+                ManagerId = employee.FunctionalManagerId.Value,
+                ReportingType = "Functional"
             });
         }
 
@@ -178,6 +192,34 @@ public class EfEmployeeRepository : IEmployeeRepository
             if (currentReporting != null)
             {
                 _db.OrgReportings.Remove(currentReporting);
+            }
+        }
+
+        // Update functional manager link in OrgReporting (mirrors the Direct block above)
+        var currentFunctionalReporting = await _db.OrgReportings
+            .FirstOrDefaultAsync(o => o.EmployeeId == id && o.ReportingType == "Functional");
+
+        if (updated.FunctionalManagerId.HasValue)
+        {
+            if (currentFunctionalReporting == null)
+            {
+                _db.OrgReportings.Add(new OrgReporting
+                {
+                    EmployeeId = id,
+                    ManagerId = updated.FunctionalManagerId.Value,
+                    ReportingType = "Functional"
+                });
+            }
+            else
+            {
+                currentFunctionalReporting.ManagerId = updated.FunctionalManagerId.Value;
+            }
+        }
+        else
+        {
+            if (currentFunctionalReporting != null)
+            {
+                _db.OrgReportings.Remove(currentFunctionalReporting);
             }
         }
 

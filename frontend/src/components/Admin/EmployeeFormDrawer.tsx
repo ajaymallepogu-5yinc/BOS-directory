@@ -16,6 +16,7 @@ const emptyForm: EmployeeFormValues = {
   company: "",
   avatarUrl: "",
   managerId: null,
+  functionalManagerId: null,
   departmentId: null,
   appEmail: "",
   hrmsEmail: "",
@@ -40,6 +41,7 @@ export default function EmployeeFormDrawer({
         company: initial.company,
         avatarUrl: initial.avatarUrl ?? "",
         managerId: initial.managerId ?? null,
+        functionalManagerId: initial.functionalManagerId ?? null,
         departmentId: initial.departmentId,
         appEmail: initial.appEmail ?? "",
         hrmsEmail: initial.hrmsEmail ?? "",
@@ -140,6 +142,17 @@ export default function EmployeeFormDrawer({
                 .filter((m) => !initial || m.id !== initial.id)
                 .map((m) => ({ value: m.id, label: `${m.fullName} — ${m.title}` }))}
               emptyLabel="No one (this is the top of the org)"
+            />
+          </Field>
+
+          <Field label="Functional Manager (optional)">
+            <CustomSelect
+              value={values.functionalManagerId}
+              onChange={(val) => setValues((v) => ({ ...v, functionalManagerId: val !== null ? Number(val) : null }))}
+              options={managerOptions
+                .filter((m) => !initial || m.id !== initial.id)
+                .map((m) => ({ value: m.id, label: `${m.fullName} — ${m.title}` }))}
+              emptyLabel="None (no dotted-line manager)"
             />
           </Field>
 

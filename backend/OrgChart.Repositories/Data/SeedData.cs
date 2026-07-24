@@ -306,94 +306,377 @@ public static class SeedData
         }
     }
 
-    // ponytail: plain nullable column, no DB-level FK constraint (unlike ProjectManagerId, which got
-    // one from the original migration) - if an employee who's a FunctionalManager gets deleted, this
-    // column is left dangling rather than auto-nulled. Add a real FK (or app-level cleanup alongside
-    // EfEmployeeRepository.DeleteAsync) if that turns out to matter.
-    public static void EnsureFunctionalManagerColumnExists(AppDbContext db)
+    /// <summary>Drops the now-removed Projects.FunctionalManagerId column - Functional Manager
+    /// moved to the employee level (OrgReporting.ReportingType == "Functional") instead.</summary>
+    public static void EnsureFunctionalManagerColumnDropped(AppDbContext db)
     {
         if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
         {
-            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Projects"" ADD COLUMN IF NOT EXISTS ""FunctionalManagerId"" INT NULL;");
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Projects"" DROP COLUMN IF EXISTS ""FunctionalManagerId"";");
         }
         else
         {
             db.Database.ExecuteSqlRaw(@"
-                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Projects]') AND name = 'FunctionalManagerId')
+                IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Projects]') AND name = 'FunctionalManagerId')
                 BEGIN
-                    ALTER TABLE [Projects] ADD [FunctionalManagerId] int NULL;
+                    ALTER TABLE [Projects] DROP CONSTRAINT IF EXISTS [FK_Projects_AspNetUsers_FunctionalManagerId];
+                    ALTER TABLE [Projects] DROP COLUMN [FunctionalManagerId];
                 END");
         }
     }
 
-    public static void EnsureTimesheetEntriesTableExists(AppDbContext db)
+    private static bool TableExists(AppDbContext db, string tableName)
+    {
+        var conn = db.Database.GetDbConnection();
+        using var cmd = conn.CreateCommand();
+        if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = @name)";
+            var p = cmd.CreateParameter();
+            p.ParameterName = "@name";
+            p.Value = tableName;
+            cmd.Parameters.Add(p);
+            return Convert.ToBoolean(cmd.ExecuteScalar());
+        }
+        else
+        {
+            cmd.CommandText = "SELECT OBJECT_ID(@name, N'U')";
+            var p = cmd.CreateParameter();
+            p.ParameterName = "@name";
+            p.Value = $"[{tableName}]";
+            cmd.Parameters.Add(p);
+            var res = cmd.ExecuteScalar();
+            return res != DBNull.Value && res != null;
+        }
+    }
+
+    /// <summary>
+    /// Splits the old flat TimesheetEntries table (EmployeeId + per-entry Status on each row)
+    /// into Timesheets (weekly container + Status) / TimesheetEntries (line items) /
+    /// TimesheetReviewLogs (approval audit trail), per the 3-table schema. Idempotent: a no-op
+    /// once the "Timesheets" table exists. If a pre-migration TimesheetEntries table is found,
+    /// it's renamed to TimesheetEntries_Legacy (kept, not dropped) and its rows are migrated
+    /// into the new schema rather than lost.
+    /// </summary>
+    public static void EnsureTimesheetTablesExist(AppDbContext db)
+    {
+        if (TableExists(db, "Timesheets"))
+        {
+            return; // already migrated
+        }
+
+        var legacyTableExisted = TableExists(db, "TimesheetEntries");
+
+        // Rename + create as one atomic unit - a raw multi-statement ExecuteSqlRaw batch is NOT
+        // transactional on its own (a later statement failing does not roll back the earlier
+        // ones in the same batch), so without an explicit transaction a failure here could leave
+        // "Timesheets" created but "TimesheetEntries"/"TimesheetReviewLogs" missing, which
+        // TableExists(db, "Timesheets") would then wrongly treat as "already migrated" on the
+        // next startup.
+        using (var transaction = db.Database.BeginTransaction())
+        {
+            if (legacyTableExisted)
+            {
+                // Renaming the table alone leaves its PK/FK/index names attached under their
+                // ORIGINAL names (neither Postgres nor SQL Server renames constraints/indexes
+                // when their owning table is renamed) - those names collide with the
+                // identically-named constraints/indexes the new TimesheetEntries table is about
+                // to create. Drop them from the legacy copy first; it's a read-only backup from
+                // here on, it doesn't need its own PK/FK/index protection.
+                if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+                {
+                    db.Database.ExecuteSqlRaw(@"
+                        ALTER TABLE ""TimesheetEntries"" DROP CONSTRAINT IF EXISTS ""FK_TimesheetEntries_AspNetUsers_EmployeeId"";
+                        ALTER TABLE ""TimesheetEntries"" DROP CONSTRAINT IF EXISTS ""FK_TimesheetEntries_Projects_ProjectId"";
+                        ALTER TABLE ""TimesheetEntries"" DROP CONSTRAINT IF EXISTS ""FK_TimesheetEntries_AspNetUsers_ReviewedByUserId"";
+                        ALTER TABLE ""TimesheetEntries"" DROP CONSTRAINT IF EXISTS ""TimesheetEntries_pkey"";
+                        DROP INDEX IF EXISTS ""IX_TimesheetEntries_EmployeeId"";
+                        DROP INDEX IF EXISTS ""IX_TimesheetEntries_ProjectId"";
+                        DROP INDEX IF EXISTS ""IX_TimesheetEntries_ReviewedByUserId"";
+                        ALTER TABLE ""TimesheetEntries"" RENAME TO ""TimesheetEntries_Legacy"";
+                    ");
+                }
+                else
+                {
+                    db.Database.ExecuteSqlRaw(@"
+                        ALTER TABLE [TimesheetEntries] DROP CONSTRAINT IF EXISTS [FK_TimesheetEntries_AspNetUsers_EmployeeId];
+                        ALTER TABLE [TimesheetEntries] DROP CONSTRAINT IF EXISTS [FK_TimesheetEntries_Projects_ProjectId];
+                        ALTER TABLE [TimesheetEntries] DROP CONSTRAINT IF EXISTS [FK_TimesheetEntries_AspNetUsers_ReviewedByUserId];
+                        ALTER TABLE [TimesheetEntries] DROP CONSTRAINT IF EXISTS [PK_TimesheetEntries];
+                        DROP INDEX IF EXISTS [IX_TimesheetEntries_EmployeeId] ON [TimesheetEntries];
+                        DROP INDEX IF EXISTS [IX_TimesheetEntries_ProjectId] ON [TimesheetEntries];
+                        DROP INDEX IF EXISTS [IX_TimesheetEntries_ReviewedByUserId] ON [TimesheetEntries];
+                        EXEC sp_rename 'TimesheetEntries', 'TimesheetEntries_Legacy';
+                    ");
+                }
+            }
+
+            CreateNewTimesheetTables(db);
+            transaction.Commit();
+        }
+
+        if (legacyTableExisted)
+        {
+            MigrateLegacyTimesheetEntries(db);
+        }
+    }
+
+    private static void CreateNewTimesheetTables(AppDbContext db)
     {
         if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
         {
-            var sql = @"
-                CREATE TABLE IF NOT EXISTS ""TimesheetEntries"" (
+            db.Database.ExecuteSqlRaw(@"
+                CREATE TABLE IF NOT EXISTS ""Timesheets"" (
                     ""Id"" SERIAL PRIMARY KEY,
                     ""EmployeeId"" INT NOT NULL,
+                    ""StartDate"" DATE NOT NULL,
+                    ""EndDate"" DATE NOT NULL,
+                    ""Status"" VARCHAR(20) NOT NULL DEFAULT 'Draft',
+                    ""CreatedBy"" TEXT NULL,
+                    ""DateCreated"" TIMESTAMP NOT NULL DEFAULT NOW(),
+                    ""ModifiedBy"" TEXT NULL,
+                    ""DateModified"" TIMESTAMP NULL,
+                    ""IsDeleted"" BOOLEAN NOT NULL DEFAULT FALSE,
+                    ""DateDeleted"" TIMESTAMP NULL,
+                    CONSTRAINT ""FK_Timesheets_AspNetUsers_EmployeeId"" FOREIGN KEY (""EmployeeId"")
+                        REFERENCES ""AspNetUsers"" (""Id"") ON DELETE RESTRICT
+                );
+                CREATE INDEX IF NOT EXISTS ""IX_Timesheets_EmployeeId"" ON ""Timesheets"" (""EmployeeId"");
+
+                CREATE TABLE IF NOT EXISTS ""TimesheetEntries"" (
+                    ""Id"" SERIAL PRIMARY KEY,
+                    ""TimesheetId"" INT NOT NULL,
                     ""ProjectId"" INT NULL,
                     ""JiraIssueKey"" VARCHAR(50) NULL,
                     ""JiraIssueSummary"" TEXT NULL,
                     ""TaskDescription"" TEXT NULL,
-                    ""WorkDate"" DATE NOT NULL,
+                    ""Date"" DATE NOT NULL,
                     ""HoursSpent"" DECIMAL(5,2) NOT NULL,
                     ""Comment"" TEXT NULL,
-                    ""Status"" VARCHAR(20) NOT NULL DEFAULT 'Pending',
-                    ""ReviewerComment"" TEXT NULL,
-                    ""ReviewedByUserId"" INT NULL,
-                    ""ReviewedAt"" TIMESTAMP NULL,
-                    ""CreatedAt"" TIMESTAMP NOT NULL,
-                    ""UpdatedAt"" TIMESTAMP NULL,
-                    CONSTRAINT ""FK_TimesheetEntries_AspNetUsers_EmployeeId"" FOREIGN KEY (""EmployeeId"")
-                        REFERENCES ""AspNetUsers"" (""Id"") ON DELETE CASCADE,
+                    ""CreatedBy"" TEXT NULL,
+                    ""DateCreated"" TIMESTAMP NOT NULL DEFAULT NOW(),
+                    ""ModifiedBy"" TEXT NULL,
+                    ""DateModified"" TIMESTAMP NULL,
+                    ""IsDeleted"" BOOLEAN NOT NULL DEFAULT FALSE,
+                    ""DateDeleted"" TIMESTAMP NULL,
+                    CONSTRAINT ""FK_TimesheetEntries_Timesheets_TimesheetId"" FOREIGN KEY (""TimesheetId"")
+                        REFERENCES ""Timesheets"" (""Id"") ON DELETE CASCADE,
                     CONSTRAINT ""FK_TimesheetEntries_Projects_ProjectId"" FOREIGN KEY (""ProjectId"")
-                        REFERENCES ""Projects"" (""Id"") ON DELETE SET NULL,
-                    CONSTRAINT ""FK_TimesheetEntries_AspNetUsers_ReviewedByUserId"" FOREIGN KEY (""ReviewedByUserId"")
-                        REFERENCES ""AspNetUsers"" (""Id"") ON DELETE NO ACTION
+                        REFERENCES ""Projects"" (""Id"") ON DELETE SET NULL
                 );
-                CREATE INDEX IF NOT EXISTS ""IX_TimesheetEntries_EmployeeId"" ON ""TimesheetEntries"" (""EmployeeId"");
+                CREATE INDEX IF NOT EXISTS ""IX_TimesheetEntries_TimesheetId"" ON ""TimesheetEntries"" (""TimesheetId"");
                 CREATE INDEX IF NOT EXISTS ""IX_TimesheetEntries_ProjectId"" ON ""TimesheetEntries"" (""ProjectId"");
-                CREATE INDEX IF NOT EXISTS ""IX_TimesheetEntries_ReviewedByUserId"" ON ""TimesheetEntries"" (""ReviewedByUserId"");
-            ";
-            db.Database.ExecuteSqlRaw(sql);
+
+                CREATE TABLE IF NOT EXISTS ""TimesheetReviewLogs"" (
+                    ""Id"" SERIAL PRIMARY KEY,
+                    ""TimesheetId"" INT NOT NULL,
+                    ""Status"" VARCHAR(20) NOT NULL,
+                    ""ReviewerId"" INT NOT NULL,
+                    ""Comment"" TEXT NULL,
+                    ""CreatedBy"" TEXT NULL,
+                    ""DateCreated"" TIMESTAMP NOT NULL DEFAULT NOW(),
+                    ""ModifiedBy"" TEXT NULL,
+                    ""DateModified"" TIMESTAMP NULL,
+                    ""IsDeleted"" BOOLEAN NOT NULL DEFAULT FALSE,
+                    ""DateDeleted"" TIMESTAMP NULL,
+                    CONSTRAINT ""FK_TimesheetReviewLogs_Timesheets_TimesheetId"" FOREIGN KEY (""TimesheetId"")
+                        REFERENCES ""Timesheets"" (""Id"") ON DELETE CASCADE,
+                    CONSTRAINT ""FK_TimesheetReviewLogs_AspNetUsers_ReviewerId"" FOREIGN KEY (""ReviewerId"")
+                        REFERENCES ""AspNetUsers"" (""Id"") ON DELETE RESTRICT
+                );
+                CREATE INDEX IF NOT EXISTS ""IX_TimesheetReviewLogs_TimesheetId"" ON ""TimesheetReviewLogs"" (""TimesheetId"");
+            ");
         }
         else
         {
-            var sql = @"
-                IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[TimesheetEntries]') AND type in (N'U'))
-                BEGIN
-                    CREATE TABLE [TimesheetEntries] (
-                        [Id] int IDENTITY(1,1) NOT NULL,
-                        [EmployeeId] int NOT NULL,
-                        [ProjectId] int NULL,
-                        [JiraIssueKey] nvarchar(50) NULL,
-                        [JiraIssueSummary] nvarchar(max) NULL,
-                        [TaskDescription] nvarchar(max) NULL,
-                        [WorkDate] date NOT NULL,
-                        [HoursSpent] decimal(5,2) NOT NULL,
-                        [Comment] nvarchar(max) NULL,
-                        [Status] nvarchar(20) NOT NULL DEFAULT 'Pending',
-                        [ReviewerComment] nvarchar(max) NULL,
-                        [ReviewedByUserId] int NULL,
-                        [ReviewedAt] datetime2 NULL,
-                        [CreatedAt] datetime2 NOT NULL,
-                        [UpdatedAt] datetime2 NULL,
-                        CONSTRAINT [PK_TimesheetEntries] PRIMARY KEY CLUSTERED ([Id] ASC),
-                        CONSTRAINT [FK_TimesheetEntries_AspNetUsers_EmployeeId] FOREIGN KEY ([EmployeeId])
-                            REFERENCES [AspNetUsers] ([Id]) ON DELETE CASCADE,
-                        CONSTRAINT [FK_TimesheetEntries_Projects_ProjectId] FOREIGN KEY ([ProjectId])
-                            REFERENCES [Projects] ([Id]) ON DELETE SET NULL,
-                        CONSTRAINT [FK_TimesheetEntries_AspNetUsers_ReviewedByUserId] FOREIGN KEY ([ReviewedByUserId])
-                            REFERENCES [AspNetUsers] ([Id]) ON DELETE NO ACTION
-                    );
-                    CREATE INDEX [IX_TimesheetEntries_EmployeeId] ON [TimesheetEntries] ([EmployeeId]);
-                    CREATE INDEX [IX_TimesheetEntries_ProjectId] ON [TimesheetEntries] ([ProjectId]);
-                    CREATE INDEX [IX_TimesheetEntries_ReviewedByUserId] ON [TimesheetEntries] ([ReviewedByUserId]);
-                END";
-            db.Database.ExecuteSqlRaw(sql);
+            db.Database.ExecuteSqlRaw(@"
+                CREATE TABLE [Timesheets] (
+                    [Id] int IDENTITY(1,1) NOT NULL,
+                    [EmployeeId] int NOT NULL,
+                    [StartDate] date NOT NULL,
+                    [EndDate] date NOT NULL,
+                    [Status] nvarchar(20) NOT NULL DEFAULT 'Draft',
+                    [CreatedBy] nvarchar(max) NULL,
+                    [DateCreated] datetime2 NOT NULL DEFAULT GETUTCDATE(),
+                    [ModifiedBy] nvarchar(max) NULL,
+                    [DateModified] datetime2 NULL,
+                    [IsDeleted] bit NOT NULL DEFAULT 0,
+                    [DateDeleted] datetime2 NULL,
+                    CONSTRAINT [PK_Timesheets] PRIMARY KEY CLUSTERED ([Id] ASC),
+                    CONSTRAINT [FK_Timesheets_AspNetUsers_EmployeeId] FOREIGN KEY ([EmployeeId])
+                        REFERENCES [AspNetUsers] ([Id]) ON DELETE NO ACTION
+                );
+                CREATE INDEX [IX_Timesheets_EmployeeId] ON [Timesheets] ([EmployeeId]);
+
+                CREATE TABLE [TimesheetEntries] (
+                    [Id] int IDENTITY(1,1) NOT NULL,
+                    [TimesheetId] int NOT NULL,
+                    [ProjectId] int NULL,
+                    [JiraIssueKey] nvarchar(50) NULL,
+                    [JiraIssueSummary] nvarchar(max) NULL,
+                    [TaskDescription] nvarchar(max) NULL,
+                    [Date] date NOT NULL,
+                    [HoursSpent] decimal(5,2) NOT NULL,
+                    [Comment] nvarchar(max) NULL,
+                    [CreatedBy] nvarchar(max) NULL,
+                    [DateCreated] datetime2 NOT NULL DEFAULT GETUTCDATE(),
+                    [ModifiedBy] nvarchar(max) NULL,
+                    [DateModified] datetime2 NULL,
+                    [IsDeleted] bit NOT NULL DEFAULT 0,
+                    [DateDeleted] datetime2 NULL,
+                    CONSTRAINT [PK_TimesheetEntries] PRIMARY KEY CLUSTERED ([Id] ASC),
+                    CONSTRAINT [FK_TimesheetEntries_Timesheets_TimesheetId] FOREIGN KEY ([TimesheetId])
+                        REFERENCES [Timesheets] ([Id]) ON DELETE CASCADE,
+                    CONSTRAINT [FK_TimesheetEntries_Projects_ProjectId] FOREIGN KEY ([ProjectId])
+                        REFERENCES [Projects] ([Id]) ON DELETE SET NULL
+                );
+                CREATE INDEX [IX_TimesheetEntries_TimesheetId] ON [TimesheetEntries] ([TimesheetId]);
+                CREATE INDEX [IX_TimesheetEntries_ProjectId] ON [TimesheetEntries] ([ProjectId]);
+
+                CREATE TABLE [TimesheetReviewLogs] (
+                    [Id] int IDENTITY(1,1) NOT NULL,
+                    [TimesheetId] int NOT NULL,
+                    [Status] nvarchar(20) NOT NULL,
+                    [ReviewerId] int NOT NULL,
+                    [Comment] nvarchar(max) NULL,
+                    [CreatedBy] nvarchar(max) NULL,
+                    [DateCreated] datetime2 NOT NULL DEFAULT GETUTCDATE(),
+                    [ModifiedBy] nvarchar(max) NULL,
+                    [DateModified] datetime2 NULL,
+                    [IsDeleted] bit NOT NULL DEFAULT 0,
+                    [DateDeleted] datetime2 NULL,
+                    CONSTRAINT [PK_TimesheetReviewLogs] PRIMARY KEY CLUSTERED ([Id] ASC),
+                    CONSTRAINT [FK_TimesheetReviewLogs_Timesheets_TimesheetId] FOREIGN KEY ([TimesheetId])
+                        REFERENCES [Timesheets] ([Id]) ON DELETE CASCADE,
+                    CONSTRAINT [FK_TimesheetReviewLogs_AspNetUsers_ReviewerId] FOREIGN KEY ([ReviewerId])
+                        REFERENCES [AspNetUsers] ([Id]) ON DELETE NO ACTION
+                );
+                CREATE INDEX [IX_TimesheetReviewLogs_TimesheetId] ON [TimesheetReviewLogs] ([TimesheetId]);
+            ");
+        }
+    }
+
+    private class LegacyTimesheetEntryRow
+    {
+        public int EmployeeId { get; set; }
+        public int? ProjectId { get; set; }
+        public string? JiraIssueKey { get; set; }
+        public string? JiraIssueSummary { get; set; }
+        public string? TaskDescription { get; set; }
+        public DateTime WorkDate { get; set; }
+        public decimal HoursSpent { get; set; }
+        public string? Comment { get; set; }
+        public string Status { get; set; } = "Draft";
+        public string? ReviewerComment { get; set; }
+        public int? ReviewedByUserId { get; set; }
+        public DateTime? ReviewedAt { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    /// <summary>One-time data migration: groups legacy per-entry rows into whole-week Timesheets.
+    /// Since the old model allowed each entry within a week to carry its own status, the week's
+    /// new single Status is inferred: Rejected wins if any entry was Rejected, else Pending if
+    /// any is Pending, else Approved only if every entry was Approved, else Draft.</summary>
+    private static void MigrateLegacyTimesheetEntries(AppDbContext db)
+    {
+        var legacyRows = new List<LegacyTimesheetEntryRow>();
+        var conn = db.Database.GetDbConnection();
+        using (var cmd = conn.CreateCommand())
+        {
+            if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+            cmd.CommandText = db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL"
+                ? @"SELECT ""EmployeeId"", ""ProjectId"", ""JiraIssueKey"", ""JiraIssueSummary"", ""TaskDescription"", ""WorkDate"", ""HoursSpent"", ""Comment"", ""Status"", ""ReviewerComment"", ""ReviewedByUserId"", ""ReviewedAt"", ""CreatedAt"", ""UpdatedAt"" FROM ""TimesheetEntries_Legacy"""
+                : @"SELECT [EmployeeId], [ProjectId], [JiraIssueKey], [JiraIssueSummary], [TaskDescription], [WorkDate], [HoursSpent], [Comment], [Status], [ReviewerComment], [ReviewedByUserId], [ReviewedAt], [CreatedAt], [UpdatedAt] FROM [TimesheetEntries_Legacy]";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                legacyRows.Add(new LegacyTimesheetEntryRow
+                {
+                    EmployeeId = reader.GetInt32(0),
+                    ProjectId = reader.IsDBNull(1) ? null : reader.GetInt32(1),
+                    JiraIssueKey = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    JiraIssueSummary = reader.IsDBNull(3) ? null : reader.GetString(3),
+                    TaskDescription = reader.IsDBNull(4) ? null : reader.GetString(4),
+                    WorkDate = reader.GetDateTime(5),
+                    HoursSpent = reader.GetDecimal(6),
+                    Comment = reader.IsDBNull(7) ? null : reader.GetString(7),
+                    Status = reader.GetString(8),
+                    ReviewerComment = reader.IsDBNull(9) ? null : reader.GetString(9),
+                    ReviewedByUserId = reader.IsDBNull(10) ? null : reader.GetInt32(10),
+                    ReviewedAt = reader.IsDBNull(11) ? null : reader.GetDateTime(11),
+                    CreatedAt = reader.GetDateTime(12),
+                    UpdatedAt = reader.IsDBNull(13) ? null : reader.GetDateTime(13)
+                });
+            }
+        }
+
+        if (legacyRows.Count == 0) return;
+
+        DateTime GetMonday(DateTime d)
+        {
+            var day = (int)d.DayOfWeek; // Sunday = 0
+            var diff = (day == 0 ? -6 : 1) - day;
+            return d.Date.AddDays(diff);
+        }
+
+        var groups = legacyRows.GroupBy(r => (r.EmployeeId, WeekStart: GetMonday(r.WorkDate)));
+
+        foreach (var group in groups)
+        {
+            var rows = group.ToList();
+            string status =
+                rows.Any(r => r.Status == "Rejected") ? "Rejected" :
+                rows.Any(r => r.Status == "Pending") ? "Pending" :
+                rows.All(r => r.Status == "Approved") ? "Approved" : "Draft";
+
+            var timesheet = new Timesheet
+            {
+                EmployeeId = group.Key.EmployeeId,
+                StartDate = group.Key.WeekStart,
+                EndDate = group.Key.WeekStart.AddDays(4),
+                Status = status,
+                DateCreated = rows.Min(r => r.CreatedAt),
+                CreatedBy = "migration:legacy-timesheet-entries"
+            };
+            db.Timesheets.Add(timesheet);
+            db.SaveChanges();
+
+            foreach (var r in rows)
+            {
+                db.TimesheetEntries.Add(new TimesheetEntry
+                {
+                    TimesheetId = timesheet.Id,
+                    ProjectId = r.ProjectId,
+                    JiraIssueKey = r.JiraIssueKey,
+                    JiraIssueSummary = r.JiraIssueSummary,
+                    TaskDescription = r.TaskDescription,
+                    Date = r.WorkDate,
+                    HoursSpent = r.HoursSpent,
+                    Comment = r.Comment,
+                    DateCreated = r.CreatedAt,
+                    DateModified = r.UpdatedAt,
+                    ModifiedBy = r.UpdatedAt.HasValue ? "migration:legacy-timesheet-entries" : null,
+                    CreatedBy = "migration:legacy-timesheet-entries"
+                });
+            }
+
+            var reviewed = rows.Where(r => r.ReviewedByUserId.HasValue).OrderByDescending(r => r.ReviewedAt).FirstOrDefault();
+            if (reviewed != null)
+            {
+                db.TimesheetReviewLogs.Add(new TimesheetReviewLog
+                {
+                    TimesheetId = timesheet.Id,
+                    Status = status == "Rejected" ? "Rejected" : "Approved",
+                    ReviewerId = reviewed.ReviewedByUserId!.Value,
+                    Comment = reviewed.ReviewerComment,
+                    DateCreated = reviewed.ReviewedAt ?? reviewed.CreatedAt,
+                    CreatedBy = "migration:legacy-timesheet-entries"
+                });
+            }
+
+            db.SaveChanges();
         }
     }
 

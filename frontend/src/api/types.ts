@@ -26,6 +26,8 @@ export interface Employee {
   avatarUrl?: string | null;
   managerId?: number | null;
   managerName?: string | null;
+  functionalManagerId?: number | null;
+  functionalManagerName?: string | null;
   departmentId: number;
   department: string;
   appEmail: string;
@@ -46,6 +48,7 @@ export interface EmployeeFormValues {
   company: string;
   avatarUrl?: string;
   managerId: number | null;
+  functionalManagerId: number | null;
   departmentId: number | null;
   appEmail: string;
   hrmsEmail?: string;

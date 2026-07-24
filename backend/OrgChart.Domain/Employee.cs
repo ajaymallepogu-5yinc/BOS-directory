@@ -35,6 +35,11 @@ public class Employee : IdentityUser<int>
     [NotMapped]
     public int? ManagerId { get; set; }
 
+    /// <summary>Dotted-line "Functional" manager, independent of the direct-report ManagerId
+    /// above - used to route timesheet approvals to a second approver.</summary>
+    [NotMapped]
+    public int? FunctionalManagerId { get; set; }
+
     [NotMapped]
     public int? DepartmentId { get; set; }
 

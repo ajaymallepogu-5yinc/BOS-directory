@@ -82,8 +82,7 @@ public class AuthController : ControllerBase
             // Determine if admin (strictly based on Admin identity role)
             var roles = await _userManager.GetRolesAsync(employee);
             var isAdmin = roles.Contains("Admin");
-            var isManager = await _db.OrgReportings.AnyAsync(o => o.ManagerId == employee.Id && o.ReportingType == "Direct")
-            || await _db.Projects.AnyAsync(p => p.FunctionalManagerId == employee.Id);
+            var isManager = await _db.OrgReportings.AnyAsync(o => o.ManagerId == employee.Id && (o.ReportingType == "Direct" || o.ReportingType == "Functional"));
 
             return Ok(new UserSessionDto
             {
@@ -141,8 +140,7 @@ public class AuthController : ControllerBase
 
         var roles = await _userManager.GetRolesAsync(employee);
         var isAdmin = roles.Contains("Admin");
-        var isManager = await _db.OrgReportings.AnyAsync(o => o.ManagerId == employee.Id && o.ReportingType == "Direct")
-            || await _db.Projects.AnyAsync(p => p.FunctionalManagerId == employee.Id);
+        var isManager = await _db.OrgReportings.AnyAsync(o => o.ManagerId == employee.Id && (o.ReportingType == "Direct" || o.ReportingType == "Functional"));
 
         return Ok(new UserSessionDto
         {

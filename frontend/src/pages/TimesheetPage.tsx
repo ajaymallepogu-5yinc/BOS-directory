@@ -12,6 +12,7 @@ import {
 import type { JiraTicket, TimesheetEntry, TimesheetEntryFormValues } from "../api/timesheetApi";
 import ConfirmModal from "../components/Layout/ConfirmModal";
 import { formatHoursLabel } from "../utils/time";
+import { useTimesheetNotifications } from "../context/TimesheetNotificationsContext";
 
 const MAX_DAILY_HOURS = 8;
 
@@ -26,8 +27,6 @@ interface GridRow {
   hours: Record<string, string>;
   comments: Record<string, string>; // per-day comment, since each day saves as its own entry
   entryIds: Record<string, number>; // day -> saved entry id, so Save updates/deletes instead of duplicating
-  statuses: Record<string, TimesheetEntry["status"]>; // day -> that entry's current status
-  reviewerComments: Record<string, string>; // day -> manager's comment, only set when Rejected
 }
 
 function makeEmptyGridRow(id: number, weekDates: string[]): GridRow {
@@ -39,25 +38,16 @@ function makeEmptyGridRow(id: number, weekDates: string[]): GridRow {
     taskProjectId: null,
     hours: Object.fromEntries(weekDates.map((d) => [d, ""])),
     comments: {},
-    entryIds: {},
-    statuses: {},
-    reviewerComments: {}
+    entryIds: {}
   };
 }
 
-// Once submitted (Pending), it's out of the employee's hands until the manager decides - only
-// Draft (not yet submitted) and Rejected (kicked back for a fix) stay directly editable.
-function isLocked(status: TimesheetEntry["status"] | undefined): boolean {
+// Approval is a whole-week decision now (Timesheet.Status), not per-entry - once submitted
+// (Pending), the whole grid is out of the employee's hands until the manager decides. Only
+// Draft (not yet submitted) and Rejected (kicked back for a fix) weeks stay editable.
+function isWeekLocked(status: TimesheetEntry["timesheetStatus"] | undefined): boolean {
   return status === "Pending" || status === "Approved";
 }
-
-// Pending/Approved/Rejected all get a marker - Draft is the only "still just typing" state that
-// doesn't need one.
-const CELL_STATUS_DOTS: Record<string, string> = {
-  Pending: "bg-amber-500",
-  Approved: "bg-emerald-500",
-  Rejected: "bg-rose-500"
-};
 
 // Rebuilds the grid from every entry for the given week (any status), grouping same ticket/task
 // back into one row across days - this is what makes previously-entered hours show up again
@@ -79,9 +69,7 @@ function buildGridRows(entries: TimesheetEntry[], weekIsos: string[], nextId: ()
         taskProjectId: isTicket ? null : e.projectId ?? null,
         hours: Object.fromEntries(weekIsos.map((d) => [d, ""])),
         comments: {},
-        entryIds: {},
-        statuses: {},
-        reviewerComments: {}
+        entryIds: {}
       };
       groups.set(key, row);
     }
@@ -89,8 +77,6 @@ function buildGridRows(entries: TimesheetEntry[], weekIsos: string[], nextId: ()
     row.hours[dayIso] = String(e.hoursSpent);
     if (e.comment) row.comments[dayIso] = e.comment;
     row.entryIds[dayIso] = e.id;
-    row.statuses[dayIso] = e.status;
-    if (e.reviewerComment) row.reviewerComments[dayIso] = e.reviewerComment;
   }
   // Rows come out of the Map in whatever order their ticket/task was first encountered while
   // walking `entries` - and entries arrive sorted by work date descending, so a row whose only
@@ -322,6 +308,7 @@ function Dropdown({
 }
 
 export default function TimesheetPage() {
+  const { refresh: refreshNotifications } = useTimesheetNotifications();
   const [projects, setProjects] = useState<Project[]>([]);
   const [myEntries, setMyEntries] = useState<TimesheetEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -426,6 +413,15 @@ export default function TimesheetPage() {
 
   const anyTicketsLoading = useMemo(() => Object.values(ticketsLoading).some(Boolean), [ticketsLoading]);
 
+  // The whole week shares one status (Timesheet.Status) - every entry for this week carries the
+  // same timesheetStatus by construction, so any one of them tells you the week's state.
+  const weekEntries = useMemo(
+    () => myEntries.filter((e) => weekDateIsos.includes(e.workDate.slice(0, 10))),
+    [myEntries, weekDateIsos]
+  );
+  const weekStatus: TimesheetEntry["timesheetStatus"] = weekEntries[0]?.timesheetStatus ?? "Draft";
+  const weekLocked = isWeekLocked(weekStatus);
+
   const addRow = () => {
     const id = nextRowId.current++;
     pendingScrollRowId.current = id;
@@ -454,19 +450,17 @@ export default function TimesheetPage() {
     setDeleteConfirmOpen(true);
   };
 
-  // Only the row's Draft/Rejected days actually get deleted - Pending/Approved entries are out
-  // of the employee's hands and are left untouched even if the whole row is being removed.
+  // The whole week is either editable or not - Pending/Approved weeks leave every saved entry
+  // untouched even if the row itself is being removed.
   const handleConfirmRemoveRow = async () => {
     if (rowToDelete === null) return;
     setDeleteConfirmOpen(false);
     const row = rows.find((r) => r.id === rowToDelete);
-    const removableIds = row
-      ? weekDateIsos.filter((d) => row.entryIds[d] && !isLocked(row.statuses[d])).map((d) => row.entryIds[d])
-      : [];
-    const hadLockedDays = row ? weekDateIsos.some((d) => row.entryIds[d] && isLocked(row.statuses[d])) : false;
+    const removableIds = row && !weekLocked ? weekDateIsos.filter((d) => row.entryIds[d]).map((d) => row.entryIds[d]) : [];
+    const hadLockedDays = row && weekLocked ? weekDateIsos.some((d) => row.entryIds[d]) : false;
 
     if (removableIds.length === 0) {
-      showNotification("error", "This row only has submitted/approved entries, which can't be removed here.");
+      showNotification("error", "This week is submitted/approved, which can't be removed here.");
       setRowToDelete(null);
       return;
     }
@@ -500,16 +494,18 @@ export default function TimesheetPage() {
   const rowTotal = (row: GridRow) => weekDateIsos.reduce((sum, d) => sum + (parseFloat(row.hours[d]) || 0), 0);
 
   const handleSaveGrid = async () => {
-    // Cells already backed by a saved Draft/Rejected entry (row.entryIds) must be updated/deleted
-    // in place, not recreated - otherwise every re-save would duplicate the hours already on the
-    // server. Pending/Approved days are locked and never touched here at all - the backend itself
-    // rejects updates to Approved entries, so they must be excluded before any create/update/delete
-    // is attempted, not just left to fail server-side.
+    if (weekLocked) {
+      showNotification("error", "This week is pending your manager's review or already approved and can't be edited.");
+      return;
+    }
+
+    // Cells already backed by a saved entry (row.entryIds) must be updated/deleted in place, not
+    // recreated - otherwise every re-save would duplicate the hours already on the server.
     const touchedIds = new Set<number>();
     for (const row of rows) {
       for (const d of weekDateIsos) {
         const id = row.entryIds[d];
-        if (id && !isLocked(row.statuses[d])) touchedIds.add(id);
+        if (id) touchedIds.add(id);
       }
     }
 
@@ -526,12 +522,10 @@ export default function TimesheetPage() {
 
     for (const row of rows) {
       const filledDays = weekDateIsos.filter((d) => {
-        if (isLocked(row.statuses[d])) return false;
         const v = parseFloat(row.hours[d]);
         return !isNaN(v) && v > 0;
       });
       const clearedDays = weekDateIsos.filter((d) => {
-        if (isLocked(row.statuses[d])) return false;
         const v = parseFloat(row.hours[d]);
         return (isNaN(v) || v <= 0) && !!row.entryIds[d];
       });
@@ -598,6 +592,7 @@ export default function TimesheetPage() {
       showNotification("success", `Saved ${changeCount} ${changeCount === 1 ? "change" : "changes"}.`);
       const fresh = await refreshEntries();
       setRows(buildGridRows(fresh, weekDateIsos, () => nextRowId.current++));
+      refreshNotifications();
     } catch (err: any) {
       showNotification("error", err.response?.data?.message || "Failed to save some entries. Please check and try again.");
       const fresh = await refreshEntries();
@@ -607,25 +602,28 @@ export default function TimesheetPage() {
     }
   };
 
-  const weekDrafts = useMemo(
-    () => myEntries.filter((e) => weekDateIsos.includes(e.workDate.slice(0, 10)) && e.status === "Draft"),
-    [myEntries, weekDateIsos]
-  );
+  const weekDrafts = useMemo(() => weekEntries.filter((e) => e.timesheetStatus === "Draft"), [weekEntries]);
   const weekDraftTotal = useMemo(() => weekDrafts.reduce((sum, e) => sum + e.hoursSpent, 0), [weekDrafts]);
 
-  // Summarizes whatever's already been submitted this week, by status - the whole point is to make
+  // Summarizes whatever's already been submitted this week - the whole point is to make
   // "yes, this went through" (or "this got rejected, go fix it") obvious without hunting for it.
+  // Every entry in the week shares the same status, so this naturally collapses to one bucket.
   const weekStatusSummary = useMemo(() => {
     const summary: Record<string, { count: number; hours: number }> = {};
-    for (const e of myEntries) {
-      if (!weekDateIsos.includes(e.workDate.slice(0, 10)) || e.status === "Draft") continue;
-      const bucket = summary[e.status] ?? { count: 0, hours: 0 };
+    for (const e of weekEntries) {
+      if (e.timesheetStatus === "Draft") continue;
+      const bucket = summary[e.timesheetStatus] ?? { count: 0, hours: 0 };
       bucket.count += 1;
       bucket.hours += e.hoursSpent;
-      summary[e.status] = bucket;
+      summary[e.timesheetStatus] = bucket;
     }
     return summary;
-  }, [myEntries, weekDateIsos]);
+  }, [weekEntries]);
+
+  const weekReviewerComment = useMemo(
+    () => (weekStatus === "Rejected" ? weekEntries.find((e) => e.reviewerComment)?.reviewerComment : undefined),
+    [weekStatus, weekEntries]
+  );
 
   const handleConfirmSubmitWeek = async () => {
     setIsSubmittingWeek(true);
@@ -635,6 +633,7 @@ export default function TimesheetPage() {
       setSubmitWeekConfirmOpen(false);
       const fresh = await refreshEntries();
       setRows(buildGridRows(fresh, weekDateIsos, () => nextRowId.current++));
+      refreshNotifications();
     } catch (err: any) {
       showNotification("error", err.response?.data?.message || "Failed to submit week.");
     } finally {
@@ -734,6 +733,7 @@ export default function TimesheetPage() {
                   <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-150">
                     <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
                     {formatHoursLabel(weekStatusSummary.Rejected.hours)} rejected - edit to fix and resubmit ({weekStatusSummary.Rejected.count})
+                    {weekReviewerComment ? ` · "${weekReviewerComment}"` : ""}
                   </span>
                 )}
               </div>
@@ -763,12 +763,7 @@ export default function TimesheetPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-100">
-                  {rows.map((row) => {
-                    // Once any day in this row is Pending/Approved, lock the ticket/task selector
-                    // too - otherwise switching it would silently reassign an already-submitted
-                    // or approved entry to a different ticket.
-                    const rowLocked = weekDateIsos.some((d) => isLocked(row.statuses[d]));
-                    return (
+                  {rows.map((row) => (
                     <tr
                       key={row.id}
                       ref={(el) => { rowRefs.current[row.id] = el; }}
@@ -789,13 +784,13 @@ export default function TimesheetPage() {
                               placeholder={anyTicketsLoading ? "Loading tickets..." : "Search any ticket..."}
                               clearable={false}
                               searchable
-                              disabled={rowLocked}
+                              disabled={weekLocked}
                             />
                           ) : (
                             <>
                               <div className="flex items-center justify-between">
                                 <span className="text-[9px] font-bold text-ink-400 uppercase tracking-wide">Other work</span>
-                                {!rowLocked && (
+                                {!weekLocked && (
                                   <button
                                     type="button"
                                     onClick={() => updateRow(row.id, { mode: "ticket", taskDescription: "", taskProjectId: null })}
@@ -809,7 +804,7 @@ export default function TimesheetPage() {
                                 type="text"
                                 placeholder="What did you work on?"
                                 value={row.taskDescription}
-                                disabled={rowLocked}
+                                disabled={weekLocked}
                                 onChange={(e) => updateRow(row.id, { taskDescription: e.target.value })}
                                 className="rounded-lg border border-ink-200 px-2 py-1.5 text-[11px] text-ink-800 placeholder-ink-400 focus:border-brand focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
                               />
@@ -818,7 +813,7 @@ export default function TimesheetPage() {
                                 onChange={(v) => updateRow(row.id, { taskProjectId: v ? Number(v) : null })}
                                 options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
                                 placeholder="Project (optional)"
-                                disabled={rowLocked}
+                                disabled={weekLocked}
                               />
                             </>
                           )}
@@ -838,14 +833,7 @@ export default function TimesheetPage() {
                         const isPopupOpen = openCommentCell?.rowId === row.id && openCommentCell?.day === d;
                         const isEditingCell = editingCell?.rowId === row.id && editingCell?.day === d;
                         const cellDisplayValue = isEditingCell ? digitsToTimeLabel(editingCell!.text) : hoursToTimeLabel(row.hours[d]);
-                        const cellStatus = row.statuses[d];
-                        const cellLocked = isLocked(cellStatus);
-                        const statusDot = cellStatus ? CELL_STATUS_DOTS[cellStatus] : null;
-                        const tooltipParts = [
-                          row.comments[d] ? `Comment: ${row.comments[d]}` : null,
-                          row.reviewerComments[d] ? `Manager: ${row.reviewerComments[d]}` : null
-                        ].filter(Boolean);
-                        const cellTitle = tooltipParts.length > 0 ? tooltipParts.join(" · ") : undefined;
+                        const cellTitle = row.comments[d] ? `Comment: ${row.comments[d]}` : undefined;
                         return (
                           <td key={d} className="py-3 px-2 align-top text-center relative">
                             <div className="relative inline-block">
@@ -853,7 +841,7 @@ export default function TimesheetPage() {
                                 type="text"
                                 inputMode="numeric"
                                 value={cellDisplayValue}
-                                disabled={cellLocked}
+                                disabled={weekLocked}
                                 title={cellTitle}
                                 onChange={(e) => {
                                   // Only reached by paste/IME - typed digits are handled in onKeyDown instead.
@@ -899,7 +887,6 @@ export default function TimesheetPage() {
                                   isPopupOpen ? "border-brand" : "border-ink-200 focus:border-brand"
                                 }`}
                               />
-                              {statusDot && <span className={`absolute -top-1 -left-1 h-1.5 w-1.5 rounded-full ${statusDot}`} />}
                               {hasComment && <span className="absolute -top-1 -right-1 h-1.5 w-1.5 rounded-full bg-brand" />}
                             </div>
                           </td>
@@ -921,8 +908,7 @@ export default function TimesheetPage() {
                         </button>
                       </td>
                     </tr>
-                    );
-                  })}
+                  ))}
                 </tbody>
                 <tfoot className="sticky bottom-0 z-10 bg-white">
                   <tr className="border-t border-ink-150 bg-ink-50/50">
@@ -956,7 +942,7 @@ export default function TimesheetPage() {
               )}
               <button
                 onClick={handleSaveGrid}
-                disabled={isSavingGrid}
+                disabled={isSavingGrid || weekLocked}
                 className="py-2 px-5 rounded-xl border border-ink-200 bg-white text-xs font-semibold text-ink-700 hover:bg-ink-50 transition-all disabled:opacity-50"
               >
                 {isSavingGrid ? "Saving..." : "Save"}
@@ -1084,7 +1070,7 @@ export default function TimesheetPage() {
       <ConfirmModal
         isOpen={deleteConfirmOpen}
         title="Remove Row"
-        message="Remove this row? Any Draft or Rejected entries in it will be deleted - Pending or Approved days are left untouched. This action cannot be undone."
+        message="Remove this row? Any editable entries in it will be deleted - submitted/approved days are left untouched. This action cannot be undone."
         confirmLabel="Remove"
         isDestructive={true}
         onConfirm={handleConfirmRemoveRow}

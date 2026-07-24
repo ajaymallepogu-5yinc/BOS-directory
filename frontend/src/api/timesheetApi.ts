@@ -7,6 +7,7 @@ export interface JiraTicket {
 
 export interface TimesheetEntry {
   id: number;
+  timesheetId: number;
   employeeId: number;
   employeeName?: string | null;
   projectId?: number | null;
@@ -17,7 +18,7 @@ export interface TimesheetEntry {
   workDate: string;
   hoursSpent: number;
   comment?: string | null;
-  status: "Draft" | "Pending" | "Approved" | "Rejected";
+  timesheetStatus: "Draft" | "Pending" | "Approved" | "Rejected";
   reviewerComment?: string | null;
   reviewedByUserId?: number | null;
   reviewedByName?: string | null;
@@ -37,7 +38,7 @@ export interface TimesheetEntryFormValues {
 
 export interface ReviewFormValues {
   status: "Approved" | "Rejected";
-  reviewerComment?: string;
+  comment?: string;
 }
 
 export async function fetchJiraTickets(projectId: number): Promise<JiraTicket[]> {
@@ -63,8 +64,8 @@ export async function deleteTimesheetEntry(id: number): Promise<void> {
   await apiClient.delete(`/timesheet/entries/${id}`);
 }
 
-export async function reviewTimesheetEntry(id: number, values: ReviewFormValues): Promise<void> {
-  await apiClient.put(`/timesheet/entries/${id}/review`, values);
+export async function reviewTimesheet(timesheetId: number, values: ReviewFormValues): Promise<void> {
+  await apiClient.put(`/timesheet/${timesheetId}/review`, values);
 }
 
 export async function submitTimesheetWeek(weekStart: string): Promise<{ submittedCount: number }> {

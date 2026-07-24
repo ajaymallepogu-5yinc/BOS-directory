@@ -141,38 +141,44 @@ public class TimesheetController : ControllerBase
         IQueryable<TimesheetEntry> query;
         if (string.Equals(scope, "team", StringComparison.OrdinalIgnoreCase))
         {
-            var directReportIds = await _db.OrgReportings
-                .Where(o => o.ManagerId == currentId.Value && o.ReportingType == "Direct")
+            // Direct reports AND Functional (dotted-line) reports both surface here - the two
+            // OrgReporting types are independent routes to the same "who can approve this" set.
+            var reportIds = await _db.OrgReportings
+                .Where(o => o.ManagerId == currentId.Value && (o.ReportingType == "Direct" || o.ReportingType == "Functional"))
                 .Select(o => o.EmployeeId)
-                .ToListAsync();
-
-            // A project's Functional Manager sees entries logged against that project too, even
-            // for employees who aren't their direct report.
-            var functionalProjectIds = await _db.Projects
-                .Where(p => p.FunctionalManagerId == currentId.Value)
-                .Select(p => p.Id)
+                .Distinct()
                 .ToListAsync();
 
             // Drafts are private to the employee until they explicitly submit the week -
             // managers should never see them.
-            query = _db.TimesheetEntries.Where(t =>
-                (directReportIds.Contains(t.EmployeeId) || (t.ProjectId != null && functionalProjectIds.Contains(t.ProjectId.Value)))
-                && t.Status != "Draft");
+            query = _db.TimesheetEntries.Where(e =>
+                !e.IsDeleted && !e.Timesheet.IsDeleted
+                && reportIds.Contains(e.Timesheet.EmployeeId)
+                && e.Timesheet.Status != "Draft");
         }
         else
         {
-            query = _db.TimesheetEntries.Where(t => t.EmployeeId == currentId.Value);
+            query = _db.TimesheetEntries.Where(e => !e.IsDeleted && !e.Timesheet.IsDeleted && e.Timesheet.EmployeeId == currentId.Value);
         }
 
         var entries = await query
-            .Include(t => t.Employee)
-            .Include(t => t.Project)
-            .Include(t => t.ReviewedByUser)
-            .OrderByDescending(t => t.WorkDate)
-            .ThenByDescending(t => t.CreatedAt)
+            .Include(e => e.Timesheet).ThenInclude(t => t.Employee)
+            .Include(e => e.Project)
+            .OrderByDescending(e => e.Date)
+            .ThenByDescending(e => e.DateCreated)
             .ToListAsync();
 
-        return Ok(entries.Select(ToDto).ToList());
+        // One review lookup for every distinct week touched, instead of per-entry - each entry
+        // just needs its parent week's most recent Approved/Rejected decision, if any.
+        var timesheetIds = entries.Select(e => e.TimesheetId).Distinct().ToList();
+        var latestReviewByTimesheet = (await _db.TimesheetReviewLogs
+                .Where(r => !r.IsDeleted && timesheetIds.Contains(r.TimesheetId))
+                .Include(r => r.Reviewer)
+                .ToListAsync())
+            .GroupBy(r => r.TimesheetId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.DateCreated).First());
+
+        return Ok(entries.Select(e => ToDto(e, latestReviewByTimesheet.GetValueOrDefault(e.TimesheetId))).ToList());
     }
 
     [HttpPost("entries")]
@@ -195,29 +201,34 @@ public class TimesheetController : ControllerBase
         var dailyCapError = await CheckDailyCapAsync(currentId.Value, dto.WorkDate.Date, dto.HoursSpent);
         if (dailyCapError != null) return BadRequest(new { message = dailyCapError });
 
+        var timesheet = await GetOrCreateEditableTimesheetAsync(currentId.Value, dto.WorkDate.Date);
+        if (timesheet == null)
+        {
+            return BadRequest(new { message = "This week is pending your manager's review or already approved and can't be edited." });
+        }
+
         var entry = new TimesheetEntry
         {
-            EmployeeId = currentId.Value,
+            TimesheetId = timesheet.Id,
             ProjectId = dto.ProjectId,
             JiraIssueKey = dto.JiraIssueKey,
             JiraIssueSummary = dto.JiraIssueSummary,
             TaskDescription = dto.TaskDescription,
-            WorkDate = dto.WorkDate.Date,
+            Date = dto.WorkDate.Date,
             HoursSpent = dto.HoursSpent,
             Comment = dto.Comment,
-            Status = "Draft",
-            CreatedAt = DateTime.UtcNow
+            DateCreated = DateTime.UtcNow
         };
 
         _db.TimesheetEntries.Add(entry);
         await _db.SaveChangesAsync();
 
         entry = await _db.TimesheetEntries
-            .Include(t => t.Employee)
-            .Include(t => t.Project)
-            .FirstAsync(t => t.Id == entry.Id);
+            .Include(e => e.Timesheet).ThenInclude(t => t.Employee)
+            .Include(e => e.Project)
+            .FirstAsync(e => e.Id == entry.Id);
 
-        return Ok(ToDto(entry));
+        return Ok(ToDto(entry, null));
     }
 
     [HttpPut("entries/{id:int}")]
@@ -226,11 +237,13 @@ public class TimesheetController : ControllerBase
         var currentId = GetCurrentEmployeeId();
         if (currentId == null) return Unauthorized();
 
-        var entry = await _db.TimesheetEntries.FirstOrDefaultAsync(t => t.Id == id);
+        var entry = await _db.TimesheetEntries
+            .Include(e => e.Timesheet)
+            .FirstOrDefaultAsync(e => e.Id == id && !e.IsDeleted);
         if (entry == null) return NotFound();
-        if (entry.EmployeeId != currentId.Value) return Forbid();
-        if (entry.Status != "Draft" && entry.Status != "Rejected")
-            return BadRequest(new { message = "This entry is pending your manager's review and can't be edited until they act on it." });
+        if (entry.Timesheet.EmployeeId != currentId.Value) return Forbid();
+        if (entry.Timesheet.Status != "Draft" && entry.Timesheet.Status != "Rejected")
+            return BadRequest(new { message = "This week is pending your manager's review and can't be edited until they act on it." });
 
         var hasTicket = !string.IsNullOrWhiteSpace(dto.JiraIssueKey);
         var hasTask = !string.IsNullOrWhiteSpace(dto.TaskDescription);
@@ -246,24 +259,22 @@ public class TimesheetController : ControllerBase
         var dailyCapError = await CheckDailyCapAsync(currentId.Value, dto.WorkDate.Date, dto.HoursSpent, excludeEntryId: id);
         if (dailyCapError != null) return BadRequest(new { message = dailyCapError });
 
-        // Editing a Rejected entry sends it back through the Draft -> Submit Week flow rather than
-        // leaving it Rejected - the old reviewer comment no longer applies to the corrected entry.
-        if (entry.Status == "Rejected")
+        // Editing a Rejected week sends the whole week back through the Draft -> Submit Week
+        // flow rather than leaving it Rejected - the old review no longer applies once corrected.
+        if (entry.Timesheet.Status == "Rejected")
         {
-            entry.Status = "Draft";
-            entry.ReviewerComment = null;
-            entry.ReviewedByUserId = null;
-            entry.ReviewedAt = null;
+            entry.Timesheet.Status = "Draft";
+            entry.Timesheet.DateModified = DateTime.UtcNow;
         }
 
         entry.ProjectId = dto.ProjectId;
         entry.JiraIssueKey = dto.JiraIssueKey;
         entry.JiraIssueSummary = dto.JiraIssueSummary;
         entry.TaskDescription = dto.TaskDescription;
-        entry.WorkDate = dto.WorkDate.Date;
+        entry.Date = dto.WorkDate.Date;
         entry.HoursSpent = dto.HoursSpent;
         entry.Comment = dto.Comment;
-        entry.UpdatedAt = DateTime.UtcNow;
+        entry.DateModified = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
         return NoContent();
@@ -275,13 +286,22 @@ public class TimesheetController : ControllerBase
         var currentId = GetCurrentEmployeeId();
         if (currentId == null) return Unauthorized();
 
-        var entry = await _db.TimesheetEntries.FirstOrDefaultAsync(t => t.Id == id);
+        var entry = await _db.TimesheetEntries
+            .Include(e => e.Timesheet)
+            .FirstOrDefaultAsync(e => e.Id == id && !e.IsDeleted);
         if (entry == null) return NotFound();
-        if (entry.EmployeeId != currentId.Value) return Forbid();
-        if (entry.Status != "Draft" && entry.Status != "Rejected")
-            return BadRequest(new { message = "This entry is pending your manager's review and can't be deleted until they act on it." });
+        if (entry.Timesheet.EmployeeId != currentId.Value) return Forbid();
+        if (entry.Timesheet.Status != "Draft" && entry.Timesheet.Status != "Rejected")
+            return BadRequest(new { message = "This week is pending your manager's review and can't be deleted until they act on it." });
 
-        _db.TimesheetEntries.Remove(entry);
+        if (entry.Timesheet.Status == "Rejected")
+        {
+            entry.Timesheet.Status = "Draft";
+            entry.Timesheet.DateModified = DateTime.UtcNow;
+        }
+
+        entry.IsDeleted = true;
+        entry.DateDeleted = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         return NoContent();
     }
@@ -292,30 +312,26 @@ public class TimesheetController : ControllerBase
         var currentId = GetCurrentEmployeeId();
         if (currentId == null) return Unauthorized();
 
-        var weekStart = dto.WeekStart.Date;
-        var weekEnd = weekStart.AddDays(4);
+        var weekStart = GetMonday(dto.WeekStart.Date);
 
-        var drafts = await _db.TimesheetEntries
-            .Where(t => t.EmployeeId == currentId.Value && t.Status == "Draft" && t.WorkDate >= weekStart && t.WorkDate <= weekEnd)
-            .ToListAsync();
+        var timesheet = await _db.Timesheets
+            .Include(t => t.Entries.Where(e => !e.IsDeleted))
+            .FirstOrDefaultAsync(t => t.EmployeeId == currentId.Value && t.StartDate == weekStart && !t.IsDeleted);
 
-        if (drafts.Count == 0)
+        if (timesheet == null || timesheet.Status != "Draft" || timesheet.Entries.Count == 0)
         {
             return BadRequest(new { message = "No draft entries to submit for this week." });
         }
 
-        foreach (var entry in drafts)
-        {
-            entry.Status = "Pending";
-            entry.UpdatedAt = DateTime.UtcNow;
-        }
-
+        timesheet.Status = "Pending";
+        timesheet.DateModified = DateTime.UtcNow;
         await _db.SaveChangesAsync();
-        return Ok(new { submittedCount = drafts.Count });
+
+        return Ok(new { submittedCount = timesheet.Entries.Count });
     }
 
-    [HttpPut("entries/{id:int}/review")]
-    public async Task<IActionResult> Review(int id, ReviewTimesheetEntryDto dto)
+    [HttpPut("{timesheetId:int}/review")]
+    public async Task<IActionResult> Review(int timesheetId, ReviewTimesheetDto dto)
     {
         var currentId = GetCurrentEmployeeId();
         if (currentId == null) return Unauthorized();
@@ -325,9 +341,9 @@ public class TimesheetController : ControllerBase
             return BadRequest(new { message = "Status must be 'Approved' or 'Rejected'." });
         }
 
-        var entry = await _db.TimesheetEntries.Include(t => t.Project).FirstOrDefaultAsync(t => t.Id == id);
-        if (entry == null) return NotFound();
-        if (entry.Status != "Pending") return BadRequest(new { message = "This entry has already been reviewed." });
+        var timesheet = await _db.Timesheets.FirstOrDefaultAsync(t => t.Id == timesheetId && !t.IsDeleted);
+        if (timesheet == null) return NotFound();
+        if (timesheet.Status != "Pending") return BadRequest(new { message = "This week has already been reviewed." });
 
         var callerEmployee = await _db.Users.FirstOrDefaultAsync(u => u.Id == currentId.Value);
         if (callerEmployee == null) return Unauthorized();
@@ -335,31 +351,87 @@ public class TimesheetController : ControllerBase
         var isAdmin = await _userManager.IsInRoleAsync(callerEmployee, "Admin");
         if (!isAdmin)
         {
-            var isDirectManager = await _db.OrgReportings.AnyAsync(o =>
-                o.EmployeeId == entry.EmployeeId && o.ManagerId == currentId.Value && o.ReportingType == "Direct");
-            var isFunctionalManager = entry.Project?.FunctionalManagerId == currentId.Value;
-            if (!isDirectManager && !isFunctionalManager) return Forbid();
+            var isAuthorizedManager = await _db.OrgReportings.AnyAsync(o =>
+                o.EmployeeId == timesheet.EmployeeId && o.ManagerId == currentId.Value
+                && (o.ReportingType == "Direct" || o.ReportingType == "Functional"));
+            if (!isAuthorizedManager) return Forbid();
         }
 
-        entry.Status = dto.Status;
-        entry.ReviewerComment = dto.ReviewerComment;
-        entry.ReviewedByUserId = currentId.Value;
-        entry.ReviewedAt = DateTime.UtcNow;
+        timesheet.Status = dto.Status;
+        timesheet.DateModified = DateTime.UtcNow;
+
+        _db.TimesheetReviewLogs.Add(new TimesheetReviewLog
+        {
+            TimesheetId = timesheet.Id,
+            Status = dto.Status,
+            ReviewerId = currentId.Value,
+            Comment = dto.Comment,
+            CreatedBy = callerEmployee.FullName,
+            DateCreated = DateTime.UtcNow
+        });
 
         await _db.SaveChangesAsync();
         return NoContent();
     }
 
+    /// <summary>Finds the Draft/Rejected Timesheet for this employee+week to attach a new entry
+    /// to, creating one if this is the first entry logged for that week. Flips a Rejected week
+    /// back to Draft (same as Update/Delete do) since adding a new entry is itself a correction.
+    /// Returns null if the week is Pending/Approved and therefore not editable.</summary>
+    private async Task<Timesheet?> GetOrCreateEditableTimesheetAsync(int employeeId, DateTime workDate)
+    {
+        var weekStart = GetMonday(workDate);
+
+        var timesheet = await _db.Timesheets
+            .FirstOrDefaultAsync(t => t.EmployeeId == employeeId && t.StartDate == weekStart && !t.IsDeleted);
+
+        if (timesheet == null)
+        {
+            timesheet = new Timesheet
+            {
+                EmployeeId = employeeId,
+                StartDate = weekStart,
+                EndDate = weekStart.AddDays(4),
+                Status = "Draft",
+                DateCreated = DateTime.UtcNow
+            };
+            _db.Timesheets.Add(timesheet);
+            await _db.SaveChangesAsync();
+            return timesheet;
+        }
+
+        if (timesheet.Status == "Pending" || timesheet.Status == "Approved")
+        {
+            return null;
+        }
+
+        if (timesheet.Status == "Rejected")
+        {
+            timesheet.Status = "Draft";
+            timesheet.DateModified = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+
+        return timesheet;
+    }
+
+    private static DateTime GetMonday(DateTime date)
+    {
+        var day = (int)date.DayOfWeek; // Sunday = 0
+        var diff = (day == 0 ? -6 : 1) - day;
+        return date.Date.AddDays(diff);
+    }
+
     /// <summary>
     /// Mirrors the frontend's MAX_DAILY_HOURS check (TimesheetPage.tsx) so the cap holds even
     /// for callers that bypass the UI. Sums every entry the employee has that day regardless of
-    /// status, same as the frontend does, excluding the entry being edited when updating.
+    /// its week's status, same as the frontend does, excluding the entry being edited when updating.
     /// </summary>
     private async Task<string?> CheckDailyCapAsync(int employeeId, DateTime workDate, decimal hoursSpent, int? excludeEntryId = null)
     {
         var existingHours = await _db.TimesheetEntries
-            .Where(t => t.EmployeeId == employeeId && t.WorkDate == workDate && t.Id != excludeEntryId)
-            .SumAsync(t => (decimal?)t.HoursSpent) ?? 0;
+            .Where(e => !e.IsDeleted && !e.Timesheet.IsDeleted && e.Timesheet.EmployeeId == employeeId && e.Date == workDate && e.Id != excludeEntryId)
+            .SumAsync(e => (decimal?)e.HoursSpent) ?? 0;
 
         var total = existingHours + hoursSpent;
         if (total > MaxDailyHours)
@@ -369,25 +441,26 @@ public class TimesheetController : ControllerBase
         return null;
     }
 
-    private static TimesheetEntryDto ToDto(TimesheetEntry t) => new()
+    private static TimesheetEntryDto ToDto(TimesheetEntry e, TimesheetReviewLog? latestReview) => new()
     {
-        Id = t.Id,
-        EmployeeId = t.EmployeeId,
-        EmployeeName = t.Employee?.FullName,
-        ProjectId = t.ProjectId,
-        ProjectName = t.Project?.Name,
-        JiraIssueKey = t.JiraIssueKey,
-        JiraIssueSummary = t.JiraIssueSummary,
-        TaskDescription = t.TaskDescription,
-        WorkDate = t.WorkDate,
-        HoursSpent = t.HoursSpent,
-        Comment = t.Comment,
-        Status = t.Status,
-        ReviewerComment = t.ReviewerComment,
-        ReviewedByUserId = t.ReviewedByUserId,
-        ReviewedByName = t.ReviewedByUser?.FullName,
-        ReviewedAt = t.ReviewedAt,
-        CreatedAt = t.CreatedAt
+        Id = e.Id,
+        TimesheetId = e.TimesheetId,
+        EmployeeId = e.Timesheet.EmployeeId,
+        EmployeeName = e.Timesheet.Employee?.FullName,
+        ProjectId = e.ProjectId,
+        ProjectName = e.Project?.Name,
+        JiraIssueKey = e.JiraIssueKey,
+        JiraIssueSummary = e.JiraIssueSummary,
+        TaskDescription = e.TaskDescription,
+        WorkDate = e.Date,
+        HoursSpent = e.HoursSpent,
+        Comment = e.Comment,
+        TimesheetStatus = e.Timesheet.Status,
+        ReviewerComment = latestReview?.Comment,
+        ReviewedByUserId = latestReview?.ReviewerId,
+        ReviewedByName = latestReview?.Reviewer?.FullName,
+        ReviewedAt = latestReview?.DateCreated,
+        CreatedAt = e.DateCreated
     };
 
     private int? GetCurrentEmployeeId()

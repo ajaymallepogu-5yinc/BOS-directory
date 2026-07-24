@@ -34,11 +34,16 @@ public class EmployeesController : ControllerBase
     public async Task<ActionResult<List<EmployeeDto>>> GetAll()
     {
         var all = await _employees.GetAllAsync();
+        var functionalReportings = await _employees.GetAllAsync("Functional");
+        var functionalLookup = functionalReportings.ToDictionary(e => e.Id, e => e.ManagerId);
         var lookup = all.ToDictionary(e => e.Id, e => e.FullName);
         var adminIds = (await _userManager.GetUsersInRoleAsync("Admin")).Select(u => u.Id).ToHashSet();
 
-        var result = all.Select(e => new EmployeeDto
+        var result = all.Select(e =>
         {
+            var functionalManagerId = functionalLookup.TryGetValue(e.Id, out var fmId) ? fmId : null;
+            return new EmployeeDto
+            {
             Id = e.Id,
             FullName = e.FullName,
             Title = e.Title,
@@ -46,12 +51,15 @@ public class EmployeesController : ControllerBase
             AvatarUrl = e.AvatarUrl,
             ManagerId = e.ManagerId,
             ManagerName = e.ManagerId.HasValue && lookup.TryGetValue(e.ManagerId.Value, out var name) ? name : null,
+            FunctionalManagerId = functionalManagerId,
+            FunctionalManagerName = functionalManagerId.HasValue && lookup.TryGetValue(functionalManagerId.Value, out var fmName) ? fmName : null,
             DepartmentId = e.DepartmentId ?? 0,
             Department = e.Department?.Name ?? "",
             AppEmail = e.APPEmail,
             HrmsEmail = e.HRMSEmail,
             CardColor = e.CardColor,
             IsAdmin = adminIds.Contains(e.Id)
+            };
         }).ToList();
 
         return Ok(result);
@@ -81,6 +89,7 @@ public class EmployeesController : ControllerBase
             Company = e.Company,
             AvatarUrl = e.AvatarUrl,
             ManagerId = e.ManagerId,
+            FunctionalManagerId = e.FunctionalManagerId,
             DepartmentId = e.DepartmentId ?? 0,
             Department = e.Department?.Name ?? "",
             AppEmail = e.APPEmail,
@@ -104,6 +113,7 @@ public class EmployeesController : ControllerBase
             Company = dto.Company,
             AvatarUrl = dto.AvatarUrl,
             ManagerId = dto.ManagerId,
+            FunctionalManagerId = dto.FunctionalManagerId,
             DepartmentId = dto.DepartmentId,
             APPEmail = dto.APPEmail,
             HRMSEmail = dto.HRMSEmail,
@@ -123,6 +133,7 @@ public class EmployeesController : ControllerBase
             Company = created.Company,
             AvatarUrl = created.AvatarUrl,
             ManagerId = created.ManagerId,
+            FunctionalManagerId = created.FunctionalManagerId,
             DepartmentId = created.DepartmentId ?? 0,
             Department = created.Department?.Name ?? "",
             AppEmail = created.APPEmail,
@@ -140,6 +151,8 @@ public class EmployeesController : ControllerBase
 
         if (dto.ManagerId == id)
             return BadRequest("An employee cannot report to themselves.");
+        if (dto.FunctionalManagerId == id)
+            return BadRequest("An employee cannot be their own Functional Manager.");
 
         var entity = new Employee
         {
@@ -148,6 +161,7 @@ public class EmployeesController : ControllerBase
             Company = dto.Company,
             AvatarUrl = dto.AvatarUrl,
             ManagerId = dto.ManagerId,
+            FunctionalManagerId = dto.FunctionalManagerId,
             DepartmentId = dto.DepartmentId,
             APPEmail = dto.APPEmail,
             HRMSEmail = dto.HRMSEmail,

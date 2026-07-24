@@ -33,7 +33,6 @@ export default function ProjectsPage() {
   // Form states
   const [formName, setFormName] = useState("");
   const [formManagerId, setFormManagerId] = useState<number | null>(null);
-  const [formFunctionalManagerId, setFormFunctionalManagerId] = useState<number | null>(null);
   const [formIsBillable, setFormIsBillable] = useState(false);
   const [formJiraId, setFormJiraId] = useState("");
 
@@ -87,7 +86,6 @@ export default function ProjectsPage() {
     setEditingProject(null);
     setFormName("");
     setFormManagerId(null);
-    setFormFunctionalManagerId(null);
     setFormIsBillable(false);
     setFormJiraId("");
     setIsModalOpen(true);
@@ -97,7 +95,6 @@ export default function ProjectsPage() {
     setEditingProject(project);
     setFormName(project.name);
     setFormManagerId(project.projectManagerId || null);
-    setFormFunctionalManagerId(project.functionalManagerId || null);
     setFormIsBillable(project.isBillable);
     setFormJiraId(project.jiraBoardId || "");
     setIsModalOpen(true);
@@ -115,7 +112,6 @@ export default function ProjectsPage() {
       const values: ProjectFormValues = {
         name: formName.trim(),
         projectManagerId: formManagerId,
-        functionalManagerId: formFunctionalManagerId,
         isBillable: formIsBillable,
         jiraBoardId: formJiraId.trim() || undefined
       };
@@ -190,7 +186,6 @@ export default function ProjectsPage() {
     return (
       p.name.toLowerCase().includes(term) ||
       (p.projectManagerName && p.projectManagerName.toLowerCase().includes(term)) ||
-      (p.functionalManagerName && p.functionalManagerName.toLowerCase().includes(term)) ||
       (p.jiraBoardId && p.jiraBoardId.toLowerCase().includes(term))
     );
   });
@@ -295,7 +290,7 @@ export default function ProjectsPage() {
                   <th className="py-3 px-6">Project Name</th>
                   <th className="py-3 px-6">Project Manager</th>
                   <th className="py-3 px-6">Billing Type</th>
-                  <th className="py-3 px-6">Jira Connection</th>
+                  <th className="py-3 px-6">Jira Board</th>
                   <th className="py-3 px-6">Created On</th>
                   {isAdmin && <th className="py-3 px-6 text-right">Actions</th>}
                 </tr>
@@ -315,9 +310,6 @@ export default function ProjectsPage() {
                           </div>
                         ) : (
                           <span className="text-ink-400 italic">Unassigned</span>
-                        )}
-                        {project.functionalManagerName && (
-                          <span className="text-[10px] text-ink-400 pl-9">Functional: {project.functionalManagerName}</span>
                         )}
                       </div>
                     </td>
@@ -426,18 +418,6 @@ export default function ProjectsPage() {
                 <CustomSelect
                   value={formManagerId}
                   onChange={(val) => setFormManagerId(val !== null ? Number(val) : null)}
-                  options={employees.map((e) => ({ value: e.id, label: `${e.fullName} (${e.title})` }))}
-                  emptyLabel="Unassigned"
-                />
-              </div>
-
-              {/* Functional Manager - separate from Project Manager; authorizes timesheet
-                  approvals for entries logged against this project */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold text-ink-500 uppercase tracking-wide">Functional Manager (optional)</label>
-                <CustomSelect
-                  value={formFunctionalManagerId}
-                  onChange={(val) => setFormFunctionalManagerId(val !== null ? Number(val) : null)}
                   options={employees.map((e) => ({ value: e.id, label: `${e.fullName} (${e.title})` }))}
                   emptyLabel="Unassigned"
                 />

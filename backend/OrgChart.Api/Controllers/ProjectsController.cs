@@ -39,7 +39,6 @@ public class ProjectsController : ControllerBase
     {
         var list = await _db.Projects
             .Include(p => p.ProjectManager)
-            .Include(p => p.FunctionalManager)
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync();
 
@@ -49,8 +48,6 @@ public class ProjectsController : ControllerBase
             Name = p.Name,
             ProjectManagerId = p.ProjectManagerId,
             ProjectManagerName = p.ProjectManager?.FullName,
-            FunctionalManagerId = p.FunctionalManagerId,
-            FunctionalManagerName = p.FunctionalManager?.FullName,
             IsBillable = p.IsBillable,
             JiraBoardId = p.JiraBoardId,
             JiraProjectKey = p.JiraProjectKey,
@@ -71,7 +68,6 @@ public class ProjectsController : ControllerBase
         {
             Name = dto.Name,
             ProjectManagerId = dto.ProjectManagerId,
-            FunctionalManagerId = dto.FunctionalManagerId,
             IsBillable = dto.IsBillable,
             JiraBoardId = dto.JiraBoardId,
             CreatedAt = DateTime.UtcNow,
@@ -81,14 +77,10 @@ public class ProjectsController : ControllerBase
         _db.Projects.Add(project);
         await _db.SaveChangesAsync();
 
-        // Load manager names for returning
+        // Load manager name for returning
         if (project.ProjectManagerId.HasValue)
         {
             project.ProjectManager = await _db.Users.FirstOrDefaultAsync(u => u.Id == project.ProjectManagerId.Value);
-        }
-        if (project.FunctionalManagerId.HasValue)
-        {
-            project.FunctionalManager = await _db.Users.FirstOrDefaultAsync(u => u.Id == project.FunctionalManagerId.Value);
         }
 
         return CreatedAtAction(nameof(GetAll), new {}, new ProjectDto
@@ -97,8 +89,6 @@ public class ProjectsController : ControllerBase
             Name = project.Name,
             ProjectManagerId = project.ProjectManagerId,
             ProjectManagerName = project.ProjectManager?.FullName,
-            FunctionalManagerId = project.FunctionalManagerId,
-            FunctionalManagerName = project.FunctionalManager?.FullName,
             IsBillable = project.IsBillable,
             JiraBoardId = project.JiraBoardId,
             CreatedAt = project.CreatedAt,
@@ -117,7 +107,6 @@ public class ProjectsController : ControllerBase
 
         project.Name = dto.Name;
         project.ProjectManagerId = dto.ProjectManagerId;
-        project.FunctionalManagerId = dto.FunctionalManagerId;
         project.IsBillable = dto.IsBillable;
         project.JiraBoardId = dto.JiraBoardId;
         project.UpdatedAt = DateTime.UtcNow;

@@ -1,43 +1,10 @@
-import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { fetchTimesheetEntries } from "../../api/timesheetApi";
-
-function getMonday(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = (day === 0 ? -6 : 1) - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function toIsoDate(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
+import { useTimesheetNotifications } from "../../context/TimesheetNotificationsContext";
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
-  const [pendingApprovals, setPendingApprovals] = useState(0);
-
-  // Badge count of pending approval batches (employee + week), not raw entries - matches the
-  // number of cards Team Approvals actually shows, not "how many tickets did they log."
-  useEffect(() => {
-    if (!user?.isManager) return;
-    fetchTimesheetEntries("team")
-      .then((entries) => {
-        const pendingGroups = new Set(
-          entries
-            .filter((e) => e.status === "Pending")
-            .map((e) => `${e.employeeId}_${toIsoDate(getMonday(new Date(e.workDate.slice(0, 10) + "T00:00:00")))}`)
-        );
-        setPendingApprovals(pendingGroups.size);
-      })
-      .catch(() => setPendingApprovals(0));
-  }, [user?.isManager]);
+  const { pendingApprovals, rejectedWeeks } = useTimesheetNotifications();
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-2.5 rounded-xl py-2.5 px-3.5 text-xs font-semibold transition-all duration-200 ${
@@ -103,6 +70,11 @@ export default function Sidebar() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <span className="truncate">Timesheet</span>
+          {rejectedWeeks > 0 && (
+            <span className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shrink-0">
+              {rejectedWeeks}
+            </span>
+          )}
         </NavLink>
 
         {user?.isManager && (

@@ -10,8 +10,8 @@ interface Props {
 
 export default function EmployeeTable({ employees, currentUserId, onEdit, onDelete, onToggleAdmin }: Props) {
   return (
-    <div className="overflow-hidden rounded-xl border border-ink-200 bg-white">
-      <table className="w-full text-left text-sm">
+    <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white">
+      <table className="w-full min-w-[980px] text-left text-sm">
         <thead className="bg-ink-50 text-xs uppercase tracking-wide text-ink-400">
           <tr>
             <th className="px-4 py-3">Name</th>
@@ -31,7 +31,7 @@ export default function EmployeeTable({ employees, currentUserId, onEdit, onDele
               <td className="px-4 py-3 text-ink-600">{emp.title}</td>
               <td className="px-4 py-3 text-ink-600">{emp.department}</td>
               <td className="px-4 py-3 text-ink-400">{emp.managerName ?? "—"}</td>
-              <td className="px-4 py-3">
+              <td className="px-4 py-3 whitespace-nowrap">
                 <span
                   className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                     emp.isAdmin ? "bg-brand/10 text-brand-light" : "bg-ink-100 text-ink-500"
@@ -40,7 +40,7 @@ export default function EmployeeTable({ employees, currentUserId, onEdit, onDele
                   {emp.isAdmin ? "Admin" : "Employee"}
                 </span>
               </td>
-              <td className="px-4 py-3 text-right">
+              <td className="px-4 py-3 text-right whitespace-nowrap">
                 <button
                   onClick={() => onToggleAdmin(emp)}
                   disabled={emp.id === currentUserId}

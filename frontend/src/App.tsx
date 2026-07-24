@@ -9,6 +9,7 @@ import ProjectsPage from "./pages/ProjectsPage";
 import TimesheetPage from "./pages/TimesheetPage";
 import TeamApprovalsPage from "./pages/TeamApprovalsPage";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { TimesheetNotificationsProvider } from "./context/TimesheetNotificationsContext";
 
 // Layout wrapper to protect authenticated pages
 function ProtectedLayout() {
@@ -65,28 +66,30 @@ export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <Routes>
-          {/* Public login page */}
-          <Route path="/login" element={<LoginPage />} />
+        <TimesheetNotificationsProvider>
+          <Routes>
+            {/* Public login page */}
+            <Route path="/login" element={<LoginPage />} />
 
-          {/* Secure application layout */}
-          <Route element={<ProtectedLayout />}>
-            <Route path="/" element={<CompanyTreePage />} />
-            <Route path="/department" element={<DepartmentTreePage />} />
-            <Route path="/role-mapping" element={<RoleMappingPage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/timesheet" element={<TimesheetPage />} />
-            <Route element={<ManagerRoute />}>
-              <Route path="/team-approvals" element={<TeamApprovalsPage />} />
+            {/* Secure application layout */}
+            <Route element={<ProtectedLayout />}>
+              <Route path="/" element={<CompanyTreePage />} />
+              <Route path="/department" element={<DepartmentTreePage />} />
+              <Route path="/role-mapping" element={<RoleMappingPage />} />
+              <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/timesheet" element={<TimesheetPage />} />
+              <Route element={<ManagerRoute />}>
+                <Route path="/team-approvals" element={<TeamApprovalsPage />} />
+              </Route>
+              <Route element={<AdminRoute />}>
+                <Route path="/admin" element={<AdminPage />} />
+              </Route>
             </Route>
-            <Route element={<AdminRoute />}>
-              <Route path="/admin" element={<AdminPage />} />
-            </Route>
-          </Route>
 
-          {/* Fallback redirect to root */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+            {/* Fallback redirect to root */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </TimesheetNotificationsProvider>
       </BrowserRouter>
     </AuthProvider>
   );

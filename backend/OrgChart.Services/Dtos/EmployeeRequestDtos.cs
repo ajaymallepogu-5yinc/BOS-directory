@@ -24,6 +24,10 @@ public class CreateEmployeeDto
     /// <summary>Null means "this person is the top of the org" (the CEO).</summary>
     public int? ManagerId { get; set; }
 
+    /// <summary>Optional dotted-line manager, independent of ManagerId - routes timesheet
+    /// approvals to a second approver in addition to the direct manager.</summary>
+    public int? FunctionalManagerId { get; set; }
+
     [Required]
     public int DepartmentId { get; set; }
 

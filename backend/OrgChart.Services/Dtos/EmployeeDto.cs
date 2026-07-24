@@ -10,6 +10,8 @@ public class EmployeeDto
     public string? AvatarUrl { get; set; }
     public int? ManagerId { get; set; }
     public string? ManagerName { get; set; }
+    public int? FunctionalManagerId { get; set; }
+    public string? FunctionalManagerName { get; set; }
     public int DepartmentId { get; set; }
     public string Department { get; set; } = string.Empty;
     public string AppEmail { get; set; } = string.Empty;
