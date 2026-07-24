@@ -11,4 +11,11 @@ public class Department
     public string ColorHex { get; set; } = "#4338CA";
 
     public ICollection<EmpDepartment> EmpDepartments { get; set; } = new List<EmpDepartment>();
+
+    public string? CreatedBy { get; set; }
+    public DateTime DateCreated { get; set; } = DateTime.UtcNow;
+    public string? ModifiedBy { get; set; }
+    public DateTime? DateModified { get; set; }
+    public bool IsDeleted { get; set; }
+    public DateTime? DateDeleted { get; set; }
 }

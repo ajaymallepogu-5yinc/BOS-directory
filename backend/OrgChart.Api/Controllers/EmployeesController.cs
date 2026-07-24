@@ -121,7 +121,8 @@ public class EmployeesController : ControllerBase
             UserName = dto.APPEmail,
             Email = dto.APPEmail,
             NormalizedEmail = dto.APPEmail.ToUpperInvariant(),
-            NormalizedUserName = dto.APPEmail.ToUpperInvariant()
+            NormalizedUserName = dto.APPEmail.ToUpperInvariant(),
+            CreatedBy = User.Identity?.Name ?? "System"
         };
 
         var created = await _employees.AddAsync(entity);
@@ -165,7 +166,8 @@ public class EmployeesController : ControllerBase
             DepartmentId = dto.DepartmentId,
             APPEmail = dto.APPEmail,
             HRMSEmail = dto.HRMSEmail,
-            CardColor = dto.CardColor
+            CardColor = dto.CardColor,
+            ModifiedBy = User.Identity?.Name ?? "System"
         };
 
         var updated = await _employees.UpdateAsync(id, entity);

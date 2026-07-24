@@ -45,7 +45,15 @@ public class AppDbContext : IdentityDbContext<Employee, IdentityRole<int>, int>
             .HasIndex(d => d.Name)
             .IsUnique();
 
-
+        // Soft-delete query filters: applied automatically to every LINQ query against these
+        // DbSets (including through .Include() navigations), so callers never need to remember
+        // a manual "!IsDeleted" filter - the one exception is EfEmployeeRepository.DeleteAsync's
+        // OrgReporting cleanup, which still hard-removes rows tied to a being-deleted employee
+        // (Employee itself stays hard-delete, and OrgReporting's Restrict FK to AspNetUsers would
+        // otherwise block that delete).
+        modelBuilder.Entity<Department>().HasQueryFilter(d => !d.IsDeleted);
+        modelBuilder.Entity<OrgReporting>().HasQueryFilter(o => !o.IsDeleted);
+        modelBuilder.Entity<Project>().HasQueryFilter(p => !p.IsDeleted);
 
         modelBuilder.Entity<OrgReporting>(entity =>
         {

@@ -325,6 +325,157 @@ public static class SeedData
         }
     }
 
+    /// <summary>Adds CreatedBy/DateCreated/ModifiedBy/DateModified to AspNetUsers (Employee) -
+    /// audit trail only, deliberately no IsDeleted/DateDeleted here. Employee stays hard-delete
+    /// (its existing manager-reassignment flow already handles that); adding soft delete to an
+    /// Identity table would permanently reserve a deleted employee's email/username, since
+    /// ASP.NET Identity enforces those as unique.</summary>
+    public static void EnsureEmployeeAuditColumnsExist(AppDbContext db)
+    {
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"
+                ALTER TABLE ""AspNetUsers"" ADD COLUMN IF NOT EXISTS ""CreatedBy"" TEXT NULL;
+                ALTER TABLE ""AspNetUsers"" ADD COLUMN IF NOT EXISTS ""DateCreated"" TIMESTAMP NOT NULL DEFAULT NOW();
+                ALTER TABLE ""AspNetUsers"" ADD COLUMN IF NOT EXISTS ""ModifiedBy"" TEXT NULL;
+                ALTER TABLE ""AspNetUsers"" ADD COLUMN IF NOT EXISTS ""DateModified"" TIMESTAMP NULL;
+            ");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[AspNetUsers]') AND name = 'CreatedBy')
+                BEGIN
+                    ALTER TABLE [AspNetUsers] ADD [CreatedBy] nvarchar(max) NULL;
+                END
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[AspNetUsers]') AND name = 'DateCreated')
+                BEGIN
+                    ALTER TABLE [AspNetUsers] ADD [DateCreated] datetime2 NOT NULL DEFAULT GETUTCDATE();
+                END
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[AspNetUsers]') AND name = 'ModifiedBy')
+                BEGIN
+                    ALTER TABLE [AspNetUsers] ADD [ModifiedBy] nvarchar(max) NULL;
+                END
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[AspNetUsers]') AND name = 'DateModified')
+                BEGIN
+                    ALTER TABLE [AspNetUsers] ADD [DateModified] datetime2 NULL;
+                END");
+        }
+    }
+
+    /// <summary>Adds full audit fields (incl. IsDeleted/DateDeleted) to Departments.</summary>
+    public static void EnsureDepartmentAuditColumnsExist(AppDbContext db)
+    {
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"
+                ALTER TABLE ""Departments"" ADD COLUMN IF NOT EXISTS ""CreatedBy"" TEXT NULL;
+                ALTER TABLE ""Departments"" ADD COLUMN IF NOT EXISTS ""DateCreated"" TIMESTAMP NOT NULL DEFAULT NOW();
+                ALTER TABLE ""Departments"" ADD COLUMN IF NOT EXISTS ""ModifiedBy"" TEXT NULL;
+                ALTER TABLE ""Departments"" ADD COLUMN IF NOT EXISTS ""DateModified"" TIMESTAMP NULL;
+                ALTER TABLE ""Departments"" ADD COLUMN IF NOT EXISTS ""IsDeleted"" BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE ""Departments"" ADD COLUMN IF NOT EXISTS ""DateDeleted"" TIMESTAMP NULL;
+            ");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Departments]') AND name = 'CreatedBy')
+                BEGIN
+                    ALTER TABLE [Departments] ADD [CreatedBy] nvarchar(max) NULL;
+                END
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Departments]') AND name = 'DateCreated')
+                BEGIN
+                    ALTER TABLE [Departments] ADD [DateCreated] datetime2 NOT NULL DEFAULT GETUTCDATE();
+                END
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Departments]') AND name = 'ModifiedBy')
+                BEGIN
+                    ALTER TABLE [Departments] ADD [ModifiedBy] nvarchar(max) NULL;
+                END
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Departments]') AND name = 'DateModified')
+                BEGIN
+                    ALTER TABLE [Departments] ADD [DateModified] datetime2 NULL;
+                END
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Departments]') AND name = 'IsDeleted')
+                BEGIN
+                    ALTER TABLE [Departments] ADD [IsDeleted] bit NOT NULL DEFAULT 0;
+                END
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Departments]') AND name = 'DateDeleted')
+                BEGIN
+                    ALTER TABLE [Departments] ADD [DateDeleted] datetime2 NULL;
+                END");
+        }
+    }
+
+    /// <summary>Adds full audit fields (incl. IsDeleted/DateDeleted) to OrgReportings.</summary>
+    public static void EnsureOrgReportingAuditColumnsExist(AppDbContext db)
+    {
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"
+                ALTER TABLE ""OrgReportings"" ADD COLUMN IF NOT EXISTS ""CreatedBy"" TEXT NULL;
+                ALTER TABLE ""OrgReportings"" ADD COLUMN IF NOT EXISTS ""DateCreated"" TIMESTAMP NOT NULL DEFAULT NOW();
+                ALTER TABLE ""OrgReportings"" ADD COLUMN IF NOT EXISTS ""ModifiedBy"" TEXT NULL;
+                ALTER TABLE ""OrgReportings"" ADD COLUMN IF NOT EXISTS ""DateModified"" TIMESTAMP NULL;
+                ALTER TABLE ""OrgReportings"" ADD COLUMN IF NOT EXISTS ""IsDeleted"" BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE ""OrgReportings"" ADD COLUMN IF NOT EXISTS ""DateDeleted"" TIMESTAMP NULL;
+            ");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[OrgReportings]') AND name = 'CreatedBy')
+                BEGIN
+                    ALTER TABLE [OrgReportings] ADD [CreatedBy] nvarchar(max) NULL;
+                END
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[OrgReportings]') AND name = 'DateCreated')
+                BEGIN
+                    ALTER TABLE [OrgReportings] ADD [DateCreated] datetime2 NOT NULL DEFAULT GETUTCDATE();
+                END
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[OrgReportings]') AND name = 'ModifiedBy')
+                BEGIN
+                    ALTER TABLE [OrgReportings] ADD [ModifiedBy] nvarchar(max) NULL;
+                END
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[OrgReportings]') AND name = 'DateModified')
+                BEGIN
+                    ALTER TABLE [OrgReportings] ADD [DateModified] datetime2 NULL;
+                END
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[OrgReportings]') AND name = 'IsDeleted')
+                BEGIN
+                    ALTER TABLE [OrgReportings] ADD [IsDeleted] bit NOT NULL DEFAULT 0;
+                END
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[OrgReportings]') AND name = 'DateDeleted')
+                BEGIN
+                    ALTER TABLE [OrgReportings] ADD [DateDeleted] datetime2 NULL;
+                END");
+        }
+    }
+
+    /// <summary>Adds IsDeleted/DateDeleted to Projects - it already has CreatedAt/CreatedBy/
+    /// UpdatedAt/UpdatedBy from the original migration, so only the soft-delete columns are new.</summary>
+    public static void EnsureProjectSoftDeleteColumnsExist(AppDbContext db)
+    {
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"
+                ALTER TABLE ""Projects"" ADD COLUMN IF NOT EXISTS ""IsDeleted"" BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE ""Projects"" ADD COLUMN IF NOT EXISTS ""DateDeleted"" TIMESTAMP NULL;
+            ");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Projects]') AND name = 'IsDeleted')
+                BEGIN
+                    ALTER TABLE [Projects] ADD [IsDeleted] bit NOT NULL DEFAULT 0;
+                END
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Projects]') AND name = 'DateDeleted')
+                BEGIN
+                    ALTER TABLE [Projects] ADD [DateDeleted] datetime2 NULL;
+                END");
+        }
+    }
+
     private static bool TableExists(AppDbContext db, string tableName)
     {
         var conn = db.Database.GetDbConnection();

@@ -144,7 +144,9 @@ public class EfEmployeeRepository : IEmployeeRepository
         existing.AvatarUrl = updated.AvatarUrl;
         existing.HRMSEmail = updated.HRMSEmail;
         existing.CardColor = updated.CardColor;
-        
+        existing.ModifiedBy = updated.ModifiedBy;
+        existing.DateModified = DateTime.UtcNow;
+
         if (!string.IsNullOrWhiteSpace(updated.APPEmail))
         {
             existing.APPEmail = updated.APPEmail;
@@ -191,7 +193,8 @@ public class EfEmployeeRepository : IEmployeeRepository
         {
             if (currentReporting != null)
             {
-                _db.OrgReportings.Remove(currentReporting);
+                currentReporting.IsDeleted = true;
+                currentReporting.DateDeleted = DateTime.UtcNow;
             }
         }
 
@@ -219,7 +222,8 @@ public class EfEmployeeRepository : IEmployeeRepository
         {
             if (currentFunctionalReporting != null)
             {
-                _db.OrgReportings.Remove(currentFunctionalReporting);
+                currentFunctionalReporting.IsDeleted = true;
+                currentFunctionalReporting.DateDeleted = DateTime.UtcNow;
             }
         }
 
@@ -231,6 +235,11 @@ public class EfEmployeeRepository : IEmployeeRepository
     {
         var existing = await _db.Employees.FirstOrDefaultAsync(e => e.Id == id);
         if (existing is null) return false;
+
+        // OrgReporting rows are hard-removed here (not soft-deleted like the rest of this method's
+        // usual policy) because Employee itself stays hard-delete, and OrgReporting's FKs to
+        // AspNetUsers are Restrict - a soft-deleted row would still physically reference this
+        // employee and block the delete below with a FK violation.
 
         // Re-parent this employee's own direct/functional reports onto reassignManagerId (chosen by
         // the caller, e.g. an admin prompt) instead of orphaning them - must happen BEFORE the report

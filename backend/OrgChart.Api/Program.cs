@@ -161,6 +161,10 @@ using (var scope = app.Services.CreateScope())
     SeedData.EnsureJiraIdentityColumnsExist(db);
     SeedData.EnsureFunctionalManagerColumnDropped(db);
     SeedData.EnsureTimesheetTablesExist(db);
+    SeedData.EnsureEmployeeAuditColumnsExist(db);
+    SeedData.EnsureDepartmentAuditColumnsExist(db);
+    SeedData.EnsureOrgReportingAuditColumnsExist(db);
+    SeedData.EnsureProjectSoftDeleteColumnsExist(db);
     SeedData.SeedDefaultSettings(db);
 
     var config = db.DataSourceConfigs.FirstOrDefault();

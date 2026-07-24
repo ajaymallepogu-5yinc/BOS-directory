@@ -28,6 +28,11 @@ public class Employee : IdentityUser<int>
     /// <summary>Jira accountId, resolved lazily by matching APPEmail against Jira's user search. Cached here to avoid re-resolving on every request.</summary>
     public string? JiraAccountId { get; set; }
 
+    public string? CreatedBy { get; set; }
+    public DateTime DateCreated { get; set; } = DateTime.UtcNow;
+    public string? ModifiedBy { get; set; }
+    public DateTime? DateModified { get; set; }
+
     public ICollection<EmpDepartment> EmpDepartments { get; set; } = new List<EmpDepartment>();
 
     // [NotMapped] Helpers: In-memory properties for mapping, parsing, and backwards compatibility.

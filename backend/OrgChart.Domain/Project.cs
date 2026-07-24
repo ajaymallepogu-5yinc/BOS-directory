@@ -18,4 +18,6 @@ public class Project
     public string? CreatedBy { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public string? UpdatedBy { get; set; }
+    public bool IsDeleted { get; set; }
+    public DateTime? DateDeleted { get; set; }
 }

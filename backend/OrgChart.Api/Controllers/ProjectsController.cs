@@ -123,7 +123,8 @@ public class ProjectsController : ControllerBase
         var project = await _db.Projects.FirstOrDefaultAsync(p => p.Id == id);
         if (project == null) return NotFound();
 
-        _db.Projects.Remove(project);
+        project.IsDeleted = true;
+        project.DateDeleted = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         return NoContent();
     }

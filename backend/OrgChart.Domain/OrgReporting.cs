@@ -12,4 +12,11 @@ public class OrgReporting
 
     /// <summary>Type of reporting: "Direct" or "Functional"</summary>
     public string ReportingType { get; set; } = "Direct";
+
+    public string? CreatedBy { get; set; }
+    public DateTime DateCreated { get; set; } = DateTime.UtcNow;
+    public string? ModifiedBy { get; set; }
+    public DateTime? DateModified { get; set; }
+    public bool IsDeleted { get; set; }
+    public DateTime? DateDeleted { get; set; }
 }
