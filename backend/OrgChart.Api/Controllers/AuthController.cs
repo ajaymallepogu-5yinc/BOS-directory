@@ -97,9 +97,13 @@ public class AuthController : ControllerBase
                 IsManager = isManager
             });
         }
-        catch (InvalidJwtException)
+        catch (InvalidJwtException ex)
         {
-            return BadRequest(new { Message = "Invalid Google ID Token." });
+            // TEMPORARY: surfaces the real validation failure (audience/issuer/expiry mismatch,
+            // etc.) and which Client ID the server actually validated against, instead of the
+            // generic message - revert once the production Client ID mismatch is diagnosed.
+            var validatedAgainst = _config["Authentication:Google:ClientId"] ?? Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID");
+            return BadRequest(new { Message = $"Invalid Google ID Token: {ex.Message} (server validated against Client ID: {validatedAgainst})" });
         }
         catch (Exception ex)
         {
