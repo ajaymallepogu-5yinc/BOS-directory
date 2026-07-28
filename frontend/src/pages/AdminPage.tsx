@@ -61,11 +61,13 @@ export default function AdminPage() {
     onConfirm: () => {}
   });
 
-  // Delete-with-direct-reports state - asks who should manage the orphaned reports instead of
-  // silently re-assigning them (see AdminPage delete flow below).
+  // Delete-with-reports state - asks who should manage the orphaned reports instead of silently
+  // re-assigning them (see AdminPage delete flow below). Covers both direct reports (managerId)
+  // and dotted-line functional reports (functionalManagerId) - the backend re-parents either kind
+  // onto whichever manager is chosen here.
   const [reassignModal, setReassignModal] = useState<{
     employee: Employee;
-    directReports: Employee[];
+    reports: Employee[];
     selectedManagerId: number | null;
   } | null>(null);
 
@@ -267,10 +269,10 @@ export default function AdminPage() {
   }
 
   async function handleDelete(employee: Employee) {
-    const directReports = employees.filter((e) => e.managerId === employee.id);
+    const reports = employees.filter((e) => e.managerId === employee.id || e.functionalManagerId === employee.id);
 
     // Nothing to reassign - the plain confirm is enough.
-    if (directReports.length === 0) {
+    if (reports.length === 0) {
       setConfirmConfig({
         isOpen: true,
         title: "Delete Employee",
@@ -291,24 +293,25 @@ export default function AdminPage() {
       return;
     }
 
-    // Has direct reports - ask who should manage them, defaulting to this employee's own manager.
+    // Has reports (direct and/or functional) - ask who should manage them, defaulting to this
+    // employee's own manager.
     setReassignModal({
       employee,
-      directReports,
+      reports,
       selectedManagerId: employee.managerId ?? null
     });
   }
 
   async function handleConfirmReassignAndDelete() {
     if (!reassignModal) return;
-    const { employee, directReports, selectedManagerId } = reassignModal;
+    const { employee, reports, selectedManagerId } = reassignModal;
     setReassignModal(null);
     try {
       await deleteEmployee(employee.id, selectedManagerId);
       await reload();
 
-      const promoted = directReports.find((r) => r.id === selectedManagerId);
-      const remainingCount = directReports.length - (promoted ? 1 : 0);
+      const promoted = reports.find((r) => r.id === selectedManagerId);
+      const remainingCount = reports.length - (promoted ? 1 : 0);
       const remainingLabel = `${remainingCount} ${remainingCount === 1 ? "report" : "reports"}`;
 
       if (promoted) {
@@ -1046,9 +1049,9 @@ export default function AdminPage() {
               <div className="min-w-0 flex-1">
                 <h3 className="text-sm font-black text-ink-900 leading-tight">Delete Employee</h3>
                 <p className="text-xs text-ink-500 mt-1.5 leading-relaxed">
-                  {reassignModal.employee.fullName} has {reassignModal.directReports.length}{" "}
-                  {reassignModal.directReports.length === 1 ? "direct report" : "direct reports"} (
-                  {reassignModal.directReports.map((r) => r.fullName).join(", ")}). Choose who should manage them
+                  {reassignModal.employee.fullName} has {reassignModal.reports.length}{" "}
+                  {reassignModal.reports.length === 1 ? "report" : "reports"} (
+                  {reassignModal.reports.map((r) => r.fullName).join(", ")}). Choose who should manage them
                   after {reassignModal.employee.fullName} is removed.
                 </p>
               </div>
@@ -1071,7 +1074,7 @@ export default function AdminPage() {
                 />
               </label>
               {(() => {
-                const promoted = reassignModal.directReports.find((r) => r.id === reassignModal.selectedManagerId);
+                const promoted = reassignModal.reports.find((r) => r.id === reassignModal.selectedManagerId);
                 return promoted ? (
                   <p className="mt-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-150 rounded-lg px-3 py-2">
                     {promoted.fullName} is one of the reports being reassigned - they'll manage the others, but will

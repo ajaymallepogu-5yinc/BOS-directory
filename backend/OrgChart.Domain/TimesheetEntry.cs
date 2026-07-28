@@ -48,8 +48,15 @@ public class TimesheetEntry
     /// <summary>Free-text description of the work. Used when there's no Jira ticket.</summary>
     public string? TaskDescription { get; set; }
 
+    /// <summary>Short-form activity type code (e.g. "DSM", "JT", "OTH") - see the legend shown
+    /// alongside the timesheet grid for what each code means.</summary>
+    public string? ActivityCode { get; set; }
+
     public DateTime Date { get; set; }
-    public decimal HoursSpent { get; set; }
+
+    /// <summary>Stored as whole minutes, not decimal hours - the API/UI still work in hours
+    /// (e.g. 2.25h), converting to/from minutes at the DTO boundary in TimesheetController.</summary>
+    public int Minutes { get; set; }
     public string? Comment { get; set; }
 
     public string? CreatedBy { get; set; }

@@ -21,7 +21,7 @@ namespace OrgChart.Api.Controllers;
 [Authorize]
 public class TimesheetController : ControllerBase
 {
-    private const decimal MaxDailyHours = 8m;
+    private const int MaxDailyMinutes = 8 * 60;
 
     private readonly AppDbContext _db;
     private readonly UserManager<Employee> _userManager;
@@ -214,8 +214,9 @@ public class TimesheetController : ControllerBase
             JiraIssueKey = dto.JiraIssueKey,
             JiraIssueSummary = dto.JiraIssueSummary,
             TaskDescription = dto.TaskDescription,
+            ActivityCode = dto.ActivityCode,
             Date = dto.WorkDate.Date,
-            HoursSpent = dto.HoursSpent,
+            Minutes = HoursToMinutes(dto.HoursSpent),
             Comment = dto.Comment,
             DateCreated = DateTime.UtcNow
         };
@@ -271,8 +272,9 @@ public class TimesheetController : ControllerBase
         entry.JiraIssueKey = dto.JiraIssueKey;
         entry.JiraIssueSummary = dto.JiraIssueSummary;
         entry.TaskDescription = dto.TaskDescription;
+        entry.ActivityCode = dto.ActivityCode;
         entry.Date = dto.WorkDate.Date;
-        entry.HoursSpent = dto.HoursSpent;
+        entry.Minutes = HoursToMinutes(dto.HoursSpent);
         entry.Comment = dto.Comment;
         entry.DateModified = DateTime.UtcNow;
 
@@ -429,17 +431,21 @@ public class TimesheetController : ControllerBase
     /// </summary>
     private async Task<string?> CheckDailyCapAsync(int employeeId, DateTime workDate, decimal hoursSpent, int? excludeEntryId = null)
     {
-        var existingHours = await _db.TimesheetEntries
+        var existingMinutes = await _db.TimesheetEntries
             .Where(e => !e.IsDeleted && !e.Timesheet.IsDeleted && e.Timesheet.EmployeeId == employeeId && e.Date == workDate && e.Id != excludeEntryId)
-            .SumAsync(e => (decimal?)e.HoursSpent) ?? 0;
+            .SumAsync(e => (int?)e.Minutes) ?? 0;
 
-        var total = existingHours + hoursSpent;
-        if (total > MaxDailyHours)
+        var totalMinutes = existingMinutes + HoursToMinutes(hoursSpent);
+        if (totalMinutes > MaxDailyMinutes)
         {
-            return $"{workDate:MMM d} would total {total}h — over the {MaxDailyHours}-hour daily limit.";
+            var total = totalMinutes / 60m;
+            return $"{workDate:MMM d} would total {total}h — over the {MaxDailyMinutes / 60}-hour daily limit.";
         }
         return null;
     }
+
+    /// <summary>The API/UI speak in decimal hours (e.g. 2.25) - only storage is in whole minutes.</summary>
+    private static int HoursToMinutes(decimal hours) => (int)Math.Round(hours * 60);
 
     private static TimesheetEntryDto ToDto(TimesheetEntry e, TimesheetReviewLog? latestReview) => new()
     {
@@ -452,8 +458,9 @@ public class TimesheetController : ControllerBase
         JiraIssueKey = e.JiraIssueKey,
         JiraIssueSummary = e.JiraIssueSummary,
         TaskDescription = e.TaskDescription,
+        ActivityCode = e.ActivityCode,
         WorkDate = e.Date,
-        HoursSpent = e.HoursSpent,
+        HoursSpent = e.Minutes / 60m,
         Comment = e.Comment,
         TimesheetStatus = e.Timesheet.Status,
         ReviewerComment = latestReview?.Comment,

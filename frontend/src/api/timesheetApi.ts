@@ -15,6 +15,7 @@ export interface TimesheetEntry {
   jiraIssueKey?: string | null;
   jiraIssueSummary?: string | null;
   taskDescription?: string | null;
+  activityCode?: string | null;
   workDate: string;
   hoursSpent: number;
   comment?: string | null;
@@ -31,6 +32,7 @@ export interface TimesheetEntryFormValues {
   jiraIssueKey?: string;
   jiraIssueSummary?: string;
   taskDescription?: string;
+  activityCode?: string;
   workDate: string;
   hoursSpent: number;
   comment?: string;

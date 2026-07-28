@@ -1,10 +1,13 @@
+import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useTimesheetNotifications } from "../../context/TimesheetNotificationsContext";
+import ConfirmModal from "./ConfirmModal";
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
-  const { pendingApprovals, rejectedWeeks } = useTimesheetNotifications();
+  const { pendingApprovals } = useTimesheetNotifications();
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-2.5 rounded-xl py-2.5 px-3.5 text-xs font-semibold transition-all duration-200 ${
@@ -70,11 +73,6 @@ export default function Sidebar() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <span className="truncate">Timesheet</span>
-          {rejectedWeeks > 0 && (
-            <span className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shrink-0">
-              {rejectedWeeks}
-            </span>
-          )}
         </NavLink>
 
         {user?.isManager && (
@@ -122,7 +120,7 @@ export default function Sidebar() {
               <p className="text-[8px] font-bold text-ink-400 truncate leading-none mt-0.5">{user.title}</p>
             </div>
             <button
-              onClick={() => logout()}
+              onClick={() => setLogoutConfirmOpen(true)}
               className="flex items-center justify-center text-ink-400 hover:text-rose-600 hover:bg-rose-50/70 border border-transparent hover:border-rose-150 transition-all shrink-0 p-1.5 rounded-xl"
               title="Log Out"
             >
@@ -133,6 +131,19 @@ export default function Sidebar() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={logoutConfirmOpen}
+        title="Log out?"
+        message="You'll need to sign in again to access your account."
+        confirmLabel="Log Out"
+        isDestructive
+        onConfirm={() => {
+          setLogoutConfirmOpen(false);
+          logout();
+        }}
+        onCancel={() => setLogoutConfirmOpen(false)}
+      />
     </aside>
   );
 }

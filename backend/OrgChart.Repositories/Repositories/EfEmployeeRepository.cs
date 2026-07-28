@@ -18,7 +18,15 @@ public class EfEmployeeRepository : IEmployeeRepository
 
     public async Task<List<Employee>> GetAllAsync(string reportingType = "Direct")
     {
+        // AsNoTracking is required, not just an optimization: EmployeesController.GetAll() calls
+        // this twice on the same DbContext (once per reportingType) to build the Direct and
+        // Functional manager lookups. Without it, EF's identity resolution hands back the SAME
+        // tracked Employee instances on the second call, and this method's `emp.ManagerId = ...`
+        // below (a plain in-memory field, not an EF-tracked column) overwrites the first call's
+        // result on those shared objects - silently corrupting the Direct manager with whatever
+        // the Functional call resolved (or null), even though nothing was actually saved wrong.
         var list = await _db.Employees
+            .AsNoTracking()
             .Include(e => e.EmpDepartments)
             .ThenInclude(ed => ed.Department)
             .ToListAsync();

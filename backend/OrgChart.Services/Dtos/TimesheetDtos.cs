@@ -19,6 +19,7 @@ public class TimesheetEntryDto
     public string? JiraIssueKey { get; set; }
     public string? JiraIssueSummary { get; set; }
     public string? TaskDescription { get; set; }
+    public string? ActivityCode { get; set; }
     public DateTime WorkDate { get; set; }
     public decimal HoursSpent { get; set; }
     public string? Comment { get; set; }
@@ -42,6 +43,7 @@ public class CreateTimesheetEntryDto
     public string? JiraIssueKey { get; set; }
     public string? JiraIssueSummary { get; set; }
     public string? TaskDescription { get; set; }
+    public string? ActivityCode { get; set; }
     public DateTime WorkDate { get; set; }
     public decimal HoursSpent { get; set; }
     public string? Comment { get; set; }

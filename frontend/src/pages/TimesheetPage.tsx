@@ -24,6 +24,7 @@ interface GridRow {
   ticketValue: string; // composite "projectId:ticketKey" when mode === "ticket"
   taskDescription: string;
   taskProjectId: number | null;
+  activityCode: string; // short-form activity type, e.g. "DSM" - see ACTIVITY_CODES
   hours: Record<string, string>;
   comments: Record<string, string>; // per-day comment, since each day saves as its own entry
   entryIds: Record<string, number>; // day -> saved entry id, so Save updates/deletes instead of duplicating
@@ -36,6 +37,7 @@ function makeEmptyGridRow(id: number, weekDates: string[]): GridRow {
     ticketValue: "",
     taskDescription: "",
     taskProjectId: null,
+    activityCode: "",
     hours: Object.fromEntries(weekDates.map((d) => [d, ""])),
     comments: {},
     entryIds: {}
@@ -67,6 +69,7 @@ function buildGridRows(entries: TimesheetEntry[], weekIsos: string[], nextId: ()
         ticketValue: isTicket ? `${e.projectId}:${e.jiraIssueKey}` : "",
         taskDescription: isTicket ? "" : e.taskDescription || "",
         taskProjectId: isTicket ? null : e.projectId ?? null,
+        activityCode: e.activityCode || "",
         hours: Object.fromEntries(weekIsos.map((d) => [d, ""])),
         comments: {},
         entryIds: {}
@@ -124,6 +127,34 @@ function toIsoDate(date: Date): string {
 }
 
 const HOUR_STEP = 0.25; // 15 minutes, matches the old numeric input's step
+
+// Activity type short forms every row is tagged with, alongside its ticket/task - shown in full
+// in the legend popover next to the column header.
+const ACTIVITY_CODES: { code: string; type: string; explanation: string }[] = [
+  { code: "DSM", type: "Daily Standup Meetings", explanation: "Daily Scrum/Standup/Syncup Meeting" },
+  { code: "SRM", type: "Sprint Review Meetings", explanation: "Sprint Kick off Meeting, Mid Sprint Review, Sprint Product Review, Sprint Retrospection" },
+  { code: "CSM", type: "Customer meetings", explanation: "Customer/Client meetings" },
+  { code: "ISM", type: "Products + Services", explanation: "Internal Stakeholder Meeting" },
+  { code: "LDM", type: "Leadership", explanation: "Leadership Meeting" },
+  { code: "AHM", type: "All Hands Meeting", explanation: "All Hands Meeting with entire Organization" },
+  { code: "INTM", type: "Internal Meetings", explanation: "Other internal Team Meetings, syncups, checkins, reviews, 1-1, etc." },
+  { code: "EXTM", type: "External Meetings", explanation: "With external persons/vendors/third-party" },
+  { code: "OTH", type: "Other", explanation: "Other" },
+  { code: "PRA", type: "", explanation: "Pull Request review and approval" },
+  { code: "PRC", type: "", explanation: "Conflict resolution" },
+  { code: "ARB", type: "Architectural Review", explanation: "Technical Architecture / Implementation approach Reviews" },
+  { code: "JT", type: "Jira Ticket", explanation: "Any work of the team needs to be in the form of a Jira ticket (work item in Jira), that needs to be tagged in the comment" },
+  { code: "RPT", type: "Reports", explanation: "WSR/MSR/QSR - Weekly/Monthly/Quarterly Status Review" },
+  { code: "DOC", type: "Documentation", explanation: "Process documentation/ any other documentation other than project doc" },
+  { code: "REV", type: "Review", explanation: "Work review/ Validation/ Follow ups/ Coordination" },
+  { code: "DLV", type: "Delivery", explanation: "Delivery to the Customer (Updates to the Customer / Customer Support Items)" },
+  { code: "SLK", type: "Slack", explanation: "Reverting to team on slack messages - only for PM and above" },
+  { code: "DES", type: "Design", explanation: "Designing on various work items" },
+  { code: "KTS", type: "Keka Timesheets", explanation: "Keka Timesheets, Attendance, Leaves, WFH - review/approval" },
+  { code: "SAM", type: "Sales & Marketing", explanation: "Tasks related to Sales and Marketing" }
+];
+
+const ACTIVITY_CODE_OPTIONS: DropdownOption[] = ACTIVITY_CODES.map((a) => ({ value: a.code, label: a.code }));
 const OTHER_TICKET_VALUE = "__other__"; // sentinel: last entry in the ticket dropdown, switches the row to task mode
 
 // row.hours[d] keeps storing decimal hours (e.g. "2.25") - only the on-screen
@@ -136,24 +167,23 @@ function hoursToTimeLabel(value: string): string {
   return `${h}:${String(m).padStart(2, "0")}`;
 }
 
-// While a cell is being typed into, editingCell.text holds just the digits pressed so far
-// (no colon) - the last two digits are always minutes and whatever's left shifts into hours,
-// so typing "12" reads as 12 minutes (0:12) rather than being misread as 12 hours.
-function parseDigits(digits: string): { hours: number; minutes: number } {
-  const trimmed = digits.slice(-4);
-  if (!trimmed) return { hours: 0, minutes: 0 };
-  const minutePart = trimmed.length <= 2 ? trimmed : trimmed.slice(-2);
-  const hourPart = trimmed.length <= 2 ? "0" : trimmed.slice(0, -2);
-  return { hours: parseInt(hourPart, 10) || 0, minutes: Math.min(59, parseInt(minutePart, 10) || 0) };
+// While a cell is being typed into, editingCell.text holds exactly what the user typed
+// (digits plus at most one "."). The part before the dot is hours, taken directly - "8" is
+// 8 hours, not 8 minutes. No dot means the whole thing is hours.
+// The part after the dot depends on how many digits it has:
+//  - one digit is read as tenths of an hour, matching standard decimal-hours math ("2.5" -> 30min)
+//  - two digits are read as literal minutes ("8.12" -> 12min, not 7.2min)
+function parseHoursInput(text: string): { hours: number; minutes: number } {
+  const [hourPart, minutePart = ""] = text.split(".");
+  const hours = parseInt(hourPart, 10) || 0;
+  if (hours > 23) return { hours: 0, minutes: 0 }; // not a real time of day - discard rather than show e.g. "91:00"
+  if (!minutePart) return { hours, minutes: 0 };
+  const minutes = minutePart.length === 1 ? (parseInt(minutePart, 10) || 0) * 6 : Math.min(59, parseInt(minutePart.slice(0, 2), 10) || 0);
+  return { hours, minutes };
 }
 
-function digitsToTimeLabel(digits: string): string {
-  const { hours, minutes } = parseDigits(digits);
-  return `${hours}:${String(minutes).padStart(2, "0")}`;
-}
-
-function digitsToDecimalHours(digits: string): number {
-  const { hours, minutes } = parseDigits(digits);
+function hoursInputToDecimalHours(text: string): number {
+  const { hours, minutes } = parseHoursInput(text);
   return hours + minutes / 60;
 }
 
@@ -290,11 +320,7 @@ function Dropdown({
                     setIsOpen(false);
                     setQuery("");
                   }}
-                  className={`w-full rounded-lg px-3 py-1.5 text-xs font-semibold text-center transition-colors whitespace-nowrap ${
-                    value === stickyOption.value
-                      ? "bg-ink-700 text-white"
-                      : "bg-ink-100 text-ink-700 border border-ink-200 hover:bg-ink-200 hover:border-ink-300"
-                  }`}
+                  className="w-full rounded-xl px-3 py-1.5 text-xs font-bold text-center text-white bg-brand shadow-md shadow-brand/15 hover:bg-brand/90 transition-colors whitespace-nowrap"
                 >
                   {stickyOption.label}
                 </button>
@@ -332,8 +358,8 @@ export default function TimesheetPage() {
   const pendingScrollRowId = useRef<number | null>(null);
   const [isSavingGrid, setIsSavingGrid] = useState(false);
   const [openCommentCell, setOpenCommentCell] = useState<{ rowId: number; day: string; top: number; left: number } | null>(null);
-  // Digit buffer for whichever hours cell is actively being typed into (see parseDigits) -
-  // only exists once the user presses a digit; row.hours (decimal) is committed on blur/wheel.
+  // Raw text buffer for whichever hours cell is actively being typed into (see parseHoursInput) -
+  // only exists once the user presses a key; row.hours (decimal) is committed on blur/wheel.
   const [editingCell, setEditingCell] = useState<{ rowId: number; day: string; text: string } | null>(null);
 
   // Row-removal confirm state (only asked when the row has saved entries behind it)
@@ -343,6 +369,12 @@ export default function TimesheetPage() {
   // Submit Week state
   const [submitWeekConfirmOpen, setSubmitWeekConfirmOpen] = useState(false);
   const [isSubmittingWeek, setIsSubmittingWeek] = useState(false);
+
+  // Activity-code legend popover, toggled from the "?" icon next to the column header - fixed
+  // position (anchored to the icon's actual screen rect) instead of absolute, same reason as the
+  // per-cell comment popup below: absolute would get clipped by the grid's overflow-x wrapper.
+  const [legendPos, setLegendPos] = useState<{ top: number; left: number } | null>(null);
+  const legendButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     loadAll();
@@ -406,7 +438,7 @@ export default function TimesheetPage() {
     return projects.flatMap((p) =>
       (ticketsByProject[p.id] || []).map((t) => ({
         value: `${p.id}:${t.key}`,
-        label: `${t.key} — ${t.summary} · ${p.name}`
+        label: `${p.name} — ${t.summary} · ${t.key}`
       }))
     );
   }, [projects, ticketsByProject]);
@@ -558,6 +590,7 @@ export default function TimesheetPage() {
           jiraIssueKey: hasTicket ? ticketKey : undefined,
           jiraIssueSummary: hasTicket ? ticketSummary : undefined,
           taskDescription: hasTask ? row.taskDescription.trim() : undefined,
+          activityCode: row.activityCode || undefined,
           workDate: d,
           hoursSpent: hrs,
           comment: (row.comments[d] || "").trim() || undefined
@@ -654,7 +687,7 @@ export default function TimesheetPage() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-ink-50/20 p-8 overflow-hidden">
+    <div className="h-full flex flex-col bg-ink-50/20 p-8 overflow-y-auto scrollbar-none">
       {successMsg && (
         <div className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 text-xs font-semibold shadow-lg animate-fade-in">
           <svg className="h-4 w-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -742,11 +775,32 @@ export default function TimesheetPage() {
 
           {/* Weekly entry grid - search a ticket once, fill hours across whichever days apply */}
           <div className="shrink-0">
-            <div className="rounded-2xl border border-ink-150 bg-white shadow-sm overflow-auto scrollbar-none max-h-64">
+            <div className="rounded-2xl border border-ink-150 bg-white shadow-sm overflow-x-auto scrollbar-none">
               <table className="w-full text-left border-collapse min-w-[920px]">
                 <thead className="sticky top-0 z-10">
                   <tr className="border-b border-ink-150 bg-ink-50 text-[10px] font-bold uppercase tracking-wider text-ink-500">
-                    <th className="py-3 px-4 w-72">Ticket / Task</th>
+                    <th className="py-3 px-4 w-64">Ticket / Task</th>
+                    <th className="py-3 px-2 w-24">
+                      <div className="flex items-center gap-1.5">
+                        <span>Type</span>
+                        <button
+                          ref={legendButtonRef}
+                          type="button"
+                          onClick={() => {
+                            if (legendPos) {
+                              setLegendPos(null);
+                              return;
+                            }
+                            const rect = legendButtonRef.current!.getBoundingClientRect();
+                            setLegendPos({ top: rect.bottom + 6, left: rect.left });
+                          }}
+                          title="What do the activity type codes mean?"
+                          className="h-4 w-4 rounded-full border border-ink-300 text-ink-400 hover:text-brand hover:border-brand flex items-center justify-center text-[9px] font-black normal-case shrink-0"
+                        >
+                          ?
+                        </button>
+                      </div>
+                    </th>
                     {displayDays.map((d) => {
                       const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                       return (
@@ -819,6 +873,15 @@ export default function TimesheetPage() {
                           )}
                         </div>
                       </td>
+                      <td className="py-3 px-2 align-top">
+                        <Dropdown
+                          value={row.activityCode}
+                          onChange={(v) => updateRow(row.id, { activityCode: v })}
+                          options={ACTIVITY_CODE_OPTIONS}
+                          placeholder="Type"
+                          disabled={weekLocked}
+                        />
+                      </td>
                       {displayDays.map((dDate) => {
                         const d = toIsoDate(dDate);
                         if (!weekDateIsos.includes(d)) {
@@ -832,7 +895,9 @@ export default function TimesheetPage() {
                         const hasComment = !!(row.comments[d] || "").trim();
                         const isPopupOpen = openCommentCell?.rowId === row.id && openCommentCell?.day === d;
                         const isEditingCell = editingCell?.rowId === row.id && editingCell?.day === d;
-                        const cellDisplayValue = isEditingCell ? digitsToTimeLabel(editingCell!.text) : hoursToTimeLabel(row.hours[d]);
+                        // While editing, show exactly what was typed (e.g. "2.3") rather than
+                        // live-converting it - the H:MM conversion only appears once committed on blur.
+                        const cellDisplayValue = isEditingCell ? editingCell!.text : hoursToTimeLabel(row.hours[d]);
                         const cellTitle = row.comments[d] ? `Comment: ${row.comments[d]}` : undefined;
                         return (
                           <td key={d} className="py-3 px-2 align-top text-center relative">
@@ -845,22 +910,31 @@ export default function TimesheetPage() {
                                 title={cellTitle}
                                 onChange={(e) => {
                                   // Only reached by paste/IME - typed digits are handled in onKeyDown instead.
-                                  const digits = e.target.value.replace(/\D/g, "").slice(-4);
-                                  setEditingCell({ rowId: row.id, day: d, text: digits });
+                                  const raw = e.target.value.replace(/[^0-9.]/g, "");
+                                  const firstDot = raw.indexOf(".");
+                                  const text = firstDot === -1 ? raw : raw.slice(0, firstDot + 1) + raw.slice(firstDot + 1).replace(/\./g, "");
+                                  setEditingCell({ rowId: row.id, day: d, text: text.slice(0, 6) });
                                 }}
                                 onKeyDown={(e) => {
+                                  const current = isEditingCell ? editingCell!.text : "";
                                   if (/^[0-9]$/.test(e.key)) {
                                     e.preventDefault();
-                                    const current = isEditingCell ? editingCell!.text : "";
-                                    setEditingCell({ rowId: row.id, day: d, text: (current + e.key).slice(-4) });
-                                  } else if (e.key === "Backspace" && isEditingCell) {
+                                    setEditingCell({ rowId: row.id, day: d, text: (current + e.key).slice(0, 6) });
+                                  } else if (e.key === "." && !current.includes(".")) {
                                     e.preventDefault();
-                                    setEditingCell({ rowId: row.id, day: d, text: editingCell!.text.slice(0, -1) });
+                                    setEditingCell({ rowId: row.id, day: d, text: current + "." });
+                                  } else if (e.key === "Backspace") {
+                                    e.preventDefault();
+                                    // Not already editing (e.g. cell shows a committed "2:18") - seed the
+                                    // buffer from the stored decimal so backspace deletes into a real value
+                                    // instead of being a no-op until the user types a digit first.
+                                    const base = isEditingCell ? editingCell!.text : (parseFloat(row.hours[d]) > 0 ? String(parseFloat(row.hours[d])) : "");
+                                    setEditingCell({ rowId: row.id, day: d, text: base.slice(0, -1) });
                                   } else if (e.key === "Enter") {
                                     e.preventDefault();
                                     e.currentTarget.blur();
                                   } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
-                                    e.preventDefault(); // digits only - mask handles the colon itself
+                                    e.preventDefault(); // digits and a single "." only
                                   }
                                 }}
                                 onFocus={(e) => {
@@ -869,7 +943,7 @@ export default function TimesheetPage() {
                                 }}
                                 onBlur={() => {
                                   if (isEditingCell) {
-                                    const decimal = digitsToDecimalHours(editingCell!.text);
+                                    const decimal = hoursInputToDecimalHours(editingCell!.text);
                                     updateHour(row.id, d, decimal > 0 ? String(decimal) : "");
                                     setEditingCell(null);
                                   }
@@ -910,7 +984,7 @@ export default function TimesheetPage() {
                     </tr>
                   ))}
                 </tbody>
-                <tfoot className="sticky bottom-0 z-10 bg-white">
+                <tfoot className="bg-white">
                   <tr className="border-t border-ink-150 bg-ink-50/50">
                     <td className="py-2.5 px-4">
                       <button
@@ -924,6 +998,7 @@ export default function TimesheetPage() {
                         Add Ticket
                       </button>
                     </td>
+                    <td></td>
                     <td colSpan={7}></td>
                     <td className="py-2.5 px-3 text-center text-xs font-black text-ink-900">
                       {formatHoursLabel(rows.reduce((sum, r) => sum + rowTotal(r), 0))}
@@ -934,7 +1009,7 @@ export default function TimesheetPage() {
               </table>
             </div>
 
-            <div className="flex items-center justify-end gap-3 mt-3">
+            <div className="flex items-center justify-end gap-3 mt-3 mb-6">
               {weekDrafts.length > 0 && (
                 <span className="text-xs text-ink-500">
                   <span className="font-black text-ink-900">{formatHoursLabel(weekDraftTotal)}</span> drafted, not yet submitted
@@ -958,6 +1033,31 @@ export default function TimesheetPage() {
           </div>
 
         </div>
+      )}
+
+      {/* Activity-code legend popup - fixed position anchored to the "?" icon's screen rect,
+          rendered at the top level for the same reason as the comment popup below. */}
+      {legendPos && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setLegendPos(null)} />
+          <div
+            className="fixed z-50 w-72 max-h-96 overflow-auto scrollbar-none rounded-xl border border-ink-150 bg-white shadow-lg p-3 animate-fade-in"
+            style={{ top: legendPos.top, left: legendPos.left }}
+          >
+            <p className="text-[10px] font-bold text-ink-800 mb-2 uppercase tracking-wide">Activity type codes</p>
+            <div className="divide-y divide-ink-100">
+              {ACTIVITY_CODES.map((a) => (
+                <div key={a.code} className="py-1.5">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="font-mono font-bold text-brand text-[10px]">{a.code}</span>
+                    {a.type && <span className="text-[10px] font-bold text-ink-700">{a.type}</span>}
+                  </div>
+                  <p className="text-[10px] font-normal text-ink-500 mt-0.5">{a.explanation}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
       )}
 
       {/* Per-cell comment popup - rendered at the top level (fixed position) so it's never

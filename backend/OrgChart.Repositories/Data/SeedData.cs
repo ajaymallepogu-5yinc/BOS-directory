@@ -502,6 +502,30 @@ public static class SeedData
         }
     }
 
+    private static bool ColumnExists(AppDbContext db, string tableName, string columnName)
+    {
+        var conn = db.Database.GetDbConnection();
+        using var cmd = conn.CreateCommand();
+        if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_name = @table AND column_name = @column)";
+        }
+        else
+        {
+            cmd.CommandText = "SELECT CASE WHEN EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(@table) AND name = @column) THEN 1 ELSE 0 END";
+        }
+        var tableParam = cmd.CreateParameter();
+        tableParam.ParameterName = "@table";
+        tableParam.Value = db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL" ? tableName : $"[{tableName}]";
+        cmd.Parameters.Add(tableParam);
+        var columnParam = cmd.CreateParameter();
+        columnParam.ParameterName = "@column";
+        columnParam.Value = columnName;
+        cmd.Parameters.Add(columnParam);
+        return Convert.ToBoolean(cmd.ExecuteScalar());
+    }
+
     /// <summary>
     /// Splits the old flat TimesheetEntries table (EmployeeId + per-entry Status on each row)
     /// into Timesheets (weekly container + Status) / TimesheetEntries (line items) /
@@ -603,7 +627,7 @@ public static class SeedData
                     ""JiraIssueSummary"" TEXT NULL,
                     ""TaskDescription"" TEXT NULL,
                     ""Date"" DATE NOT NULL,
-                    ""HoursSpent"" DECIMAL(5,2) NOT NULL,
+                    ""Minutes"" INT NOT NULL,
                     ""Comment"" TEXT NULL,
                     ""CreatedBy"" TEXT NULL,
                     ""DateCreated"" TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -668,7 +692,7 @@ public static class SeedData
                     [JiraIssueSummary] nvarchar(max) NULL,
                     [TaskDescription] nvarchar(max) NULL,
                     [Date] date NOT NULL,
-                    [HoursSpent] decimal(5,2) NOT NULL,
+                    [Minutes] int NOT NULL,
                     [Comment] nvarchar(max) NULL,
                     [CreatedBy] nvarchar(max) NULL,
                     [DateCreated] datetime2 NOT NULL DEFAULT GETUTCDATE(),
@@ -705,6 +729,55 @@ public static class SeedData
                 );
                 CREATE INDEX [IX_TimesheetReviewLogs_TimesheetId] ON [TimesheetReviewLogs] ([TimesheetId]);
             ");
+        }
+    }
+
+    /// <summary>Converts TimesheetEntries.HoursSpent (decimal hours) into Minutes (int) - only
+    /// relevant for environments where EnsureTimesheetTablesExist already ran against the older
+    /// HoursSpent-column shape; a fresh environment's CreateNewTimesheetTables now creates
+    /// Minutes directly, so this is a no-op there. The API still speaks in hours - conversion
+    /// happens at the TimesheetController DTO boundary, not here.
+    ///
+    /// Each step is its own ExecuteSqlRaw call rather than one multi-statement batch - SQL
+    /// Server's batch compiler resolves column references at parse time, so a DML statement
+    /// referencing a column added earlier IN THE SAME BATCH fails with "Invalid column name"
+    /// even though the ALTER TABLE ran first. Splitting into separate round-trips sidesteps it.</summary>
+    public static void EnsureTimesheetEntriesMinutesColumnExists(AppDbContext db)
+    {
+        var hasHoursSpent = ColumnExists(db, "TimesheetEntries", "HoursSpent");
+        var hasMinutes = ColumnExists(db, "TimesheetEntries", "Minutes");
+        if (!hasHoursSpent || hasMinutes)
+        {
+            return; // already migrated, or a fresh schema that already has Minutes
+        }
+
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""TimesheetEntries"" ADD COLUMN ""Minutes"" INT;");
+            db.Database.ExecuteSqlRaw(@"UPDATE ""TimesheetEntries"" SET ""Minutes"" = ROUND(""HoursSpent"" * 60);");
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""TimesheetEntries"" ALTER COLUMN ""Minutes"" SET NOT NULL;");
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""TimesheetEntries"" DROP COLUMN ""HoursSpent"";");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE [TimesheetEntries] ADD [Minutes] INT NULL;");
+            db.Database.ExecuteSqlRaw(@"UPDATE [TimesheetEntries] SET [Minutes] = ROUND([HoursSpent] * 60, 0);");
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE [TimesheetEntries] ALTER COLUMN [Minutes] INT NOT NULL;");
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE [TimesheetEntries] DROP COLUMN [HoursSpent];");
+        }
+    }
+
+    public static void EnsureTimesheetEntryActivityCodeColumnExists(AppDbContext db)
+    {
+        if (ColumnExists(db, "TimesheetEntries", "ActivityCode")) return;
+
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""TimesheetEntries"" ADD COLUMN IF NOT EXISTS ""ActivityCode"" VARCHAR(10) NULL;");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE [TimesheetEntries] ADD [ActivityCode] nvarchar(10) NULL;");
         }
     }
 
@@ -804,7 +877,7 @@ public static class SeedData
                     JiraIssueSummary = r.JiraIssueSummary,
                     TaskDescription = r.TaskDescription,
                     Date = r.WorkDate,
-                    HoursSpent = r.HoursSpent,
+                    Minutes = (int)Math.Round(r.HoursSpent * 60),
                     Comment = r.Comment,
                     DateCreated = r.CreatedAt,
                     DateModified = r.UpdatedAt,

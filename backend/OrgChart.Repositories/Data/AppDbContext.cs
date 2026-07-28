@@ -90,8 +90,6 @@ public class AppDbContext : IdentityDbContext<Employee, IdentityRole<int>, int>
 
         modelBuilder.Entity<TimesheetEntry>(entity =>
         {
-            entity.Property(t => t.HoursSpent).HasColumnType("decimal(5,2)");
-
             entity.HasOne(t => t.Timesheet)
                 .WithMany(t => t.Entries)
                 .HasForeignKey(t => t.TimesheetId)
