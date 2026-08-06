@@ -16,7 +16,15 @@ export default function LoginPage() {
   }, [user, navigate]);
 
   useEffect(() => {
-    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "339462828557-smpb22g16a1b241315b74681329c3v3d.apps.googleusercontent.com";
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      // Fail loudly instead of silently falling back to some other unverified OAuth client -
+      // a wrong-but-present Client ID here would validate against a different audience than
+      // the backend expects, producing a confusing rejection instead of this clear message.
+      console.error("VITE_GOOGLE_CLIENT_ID is not set at build time - Google Sign-In cannot be configured.");
+      setError("Sign-in is not configured for this environment. Contact an administrator.");
+      return;
+    }
 
     // Callback invoked when user successfully logs in with Google
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

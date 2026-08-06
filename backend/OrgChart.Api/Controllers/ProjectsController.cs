@@ -147,12 +147,13 @@ public class ProjectsController : ControllerBase
         }
 
         List<JiraBoard> boards;
+        string? cloudId;
         try
         {
             // Scoped service-account tokens are only recognized through Atlassian's shared
             // platform gateway (api.atlassian.com), not a site's own domain - so resolve the
             // site's Cloud ID first (a free, unauthenticated lookup) and route through that.
-            var cloudId = await JiraCloudResolver.ResolveCloudIdAsync(_httpClient, jiraBaseUrl);
+            cloudId = await JiraCloudResolver.ResolveCloudIdAsync(_httpClient, jiraBaseUrl);
             if (string.IsNullOrWhiteSpace(cloudId))
             {
                 return StatusCode(502, new { success = false, message = "Could not resolve the Jira site's Cloud ID. Verify the configured Jira URL." });
@@ -212,16 +213,17 @@ public class ProjectsController : ControllerBase
             return StatusCode(502, new { success = false, message = "Could not reach Jira. Verify the configured Jira URL and network connectivity." });
         }
 
-        // Pick a default manager from active employees (e.g. Ajay or Sashank) if possible
-        var firstManager = await _db.Users.FirstOrDefaultAsync(u => u.Email == "ajay.mallepogu@5yinc.com" || u.Email == "pranjal.mehta@bosframework.com");
-        var managerId = firstManager?.Id;
-
         var syncedCount = 0;
         foreach (var board in boards)
         {
             var existing = await _db.Projects.FirstOrDefaultAsync(p => p.JiraBoardId == board.Id);
             if (existing == null)
             {
+                // Ask Jira who actually leads this project, rather than defaulting every synced
+                // project to one hardcoded person - only set on first insert, never overwritten
+                // on later syncs, so it doesn't fight with a manual edit made afterward.
+                var managerId = await ResolveProjectManagerIdAsync(cloudId, board.ProjectKey, jiraEmail, jiraApiToken);
+
                 _db.Projects.Add(new Project
                 {
                     Name = board.Name,
@@ -254,6 +256,56 @@ public class ProjectsController : ControllerBase
                 : "No new Jira boards found. Database is already up to date.",
             syncedCount
         });
+    }
+
+    /// <summary>Looks up the project's real Jira lead (GET /rest/api/3/project/{key}) and matches
+    /// their email against this app's Employees table. Returns null - leaving the project
+    /// "Unassigned" rather than guessing - if the board has no project key, the lookup fails, the
+    /// lead has no email visible (their own Jira privacy setting can hide it even with the right
+    /// scope), or nobody with that email exists here yet.</summary>
+    private async Task<int?> ResolveProjectManagerIdAsync(string? cloudId, string? projectKey, string jiraEmail, string jiraApiToken)
+    {
+        if (string.IsNullOrWhiteSpace(cloudId) || string.IsNullOrWhiteSpace(projectKey))
+        {
+            return null;
+        }
+
+        try
+        {
+            var url = $"https://api.atlassian.com/ex/jira/{cloudId}/rest/api/3/project/{Uri.EscapeDataString(projectKey)}";
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            var authBytes = Encoding.UTF8.GetBytes($"{jiraEmail}:{jiraApiToken}");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("lead", out var lead))
+            {
+                return null;
+            }
+
+            var leadEmail = lead.TryGetProperty("emailAddress", out var emailProp) ? emailProp.GetString() : null;
+            if (string.IsNullOrWhiteSpace(leadEmail))
+            {
+                return null;
+            }
+
+            var employee = await _db.Users.FirstOrDefaultAsync(u => u.APPEmail.ToLower() == leadEmail.ToLower());
+            return employee?.Id;
+        }
+        catch
+        {
+            // Same policy as the rest of this controller's Jira calls: a lookup failure here
+            // shouldn't fail the whole sync, it just leaves this one project Unassigned.
+            return null;
+        }
     }
 
 

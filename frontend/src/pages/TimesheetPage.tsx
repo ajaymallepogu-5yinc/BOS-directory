@@ -436,23 +436,35 @@ export default function TimesheetPage() {
     }
   };
 
-  const ensureTicketsLoaded = (projectId: number) => {
+  const ensureTicketsLoaded = (projectId: number): Promise<void> => {
+    let shouldFetch = false;
     setTicketsLoading((prev) => {
       if (prev[projectId] || ticketsByProject[projectId]) return prev;
-      fetchJiraTickets(projectId)
-        .then((list) => setTicketsByProject((p) => ({ ...p, [projectId]: list })))
-        .catch(() => setTicketsByProject((p) => ({ ...p, [projectId]: [] })))
-        .finally(() => setTicketsLoading((p) => ({ ...p, [projectId]: false })));
+      shouldFetch = true;
       return { ...prev, [projectId]: true };
     });
+    if (!shouldFetch) return Promise.resolve();
+
+    return fetchJiraTickets(projectId)
+      .then((list) => setTicketsByProject((p) => ({ ...p, [projectId]: list })))
+      .catch(() => setTicketsByProject((p) => ({ ...p, [projectId]: [] })))
+      .finally(() => setTicketsLoading((p) => ({ ...p, [projectId]: false })));
   };
 
-  // Eagerly warm the ticket cache for every project so each group's combined picker has
-  // something to search across as soon as a project is picked for that group.
+  // Only warm the ticket cache for projects actually in use on this week's grid - not every
+  // Jira-linked project up front. Firing one request per project someone picks (realistically a
+  // handful) instead of one per project that exists (which grew past the database's own
+  // connection limit in production) means there's nothing left to throttle: a person can't select
+  // more projects at once than they can click.
+  const activeProjectIds = useMemo(
+    () => [...new Set(groups.map((g) => g.projectId).filter((id): id is number => id != null))],
+    [groups]
+  );
+
   useEffect(() => {
-    projects.forEach((p) => ensureTicketsLoaded(p.id));
+    activeProjectIds.forEach((id) => ensureTicketsLoaded(id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects]);
+  }, [activeProjectIds]);
 
   // Activity types + this group's project's tickets (already filtered to just this person's
   // assigned tickets server-side), merged into one search list.
