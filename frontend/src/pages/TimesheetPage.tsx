@@ -436,19 +436,19 @@ export default function TimesheetPage() {
     }
   };
 
-  const ensureTicketsLoaded = (projectId: number): Promise<void> => {
-    let shouldFetch = false;
+  // The fetch must be fired from inside the updater itself, not gated on a flag read right after
+  // calling setTicketsLoading - React doesn't guarantee that updater runs synchronously, so
+  // checking a "did it decide to fetch" flag immediately after can read it before it's set,
+  // silently skipping the actual fetchJiraTickets call while still marking the project "loading."
+  const ensureTicketsLoaded = (projectId: number) => {
     setTicketsLoading((prev) => {
       if (prev[projectId] || ticketsByProject[projectId]) return prev;
-      shouldFetch = true;
+      fetchJiraTickets(projectId)
+        .then((list) => setTicketsByProject((p) => ({ ...p, [projectId]: list })))
+        .catch(() => setTicketsByProject((p) => ({ ...p, [projectId]: [] })))
+        .finally(() => setTicketsLoading((p) => ({ ...p, [projectId]: false })));
       return { ...prev, [projectId]: true };
     });
-    if (!shouldFetch) return Promise.resolve();
-
-    return fetchJiraTickets(projectId)
-      .then((list) => setTicketsByProject((p) => ({ ...p, [projectId]: list })))
-      .catch(() => setTicketsByProject((p) => ({ ...p, [projectId]: [] })))
-      .finally(() => setTicketsLoading((p) => ({ ...p, [projectId]: false })));
   };
 
   // Only warm the ticket cache for projects actually in use on this week's grid - not every
