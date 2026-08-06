@@ -15,6 +15,13 @@ import { formatHoursLabel } from "../utils/time";
 import { useTimesheetNotifications } from "../context/TimesheetNotificationsContext";
 
 const MAX_DAILY_HOURS = 8;
+const SAVE_CONCURRENCY_LIMIT = 4; // keeps peak concurrent save requests well under the database's connection limit
+
+async function runInBatches<T>(items: T[], batchSize: number, run: (item: T) => Promise<unknown>): Promise<void> {
+  for (let i = 0; i < items.length; i += batchSize) {
+    await Promise.all(items.slice(i, i + batchSize).map(run));
+  }
+}
 
 /** One "what" line under a project: either a ticket (pickerValue = "ticket:KEY") or an
  * activity type (pickerValue = "type:CODE"). OTH additionally carries a free-text description. */
@@ -235,7 +242,7 @@ function Dropdown({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number; width: number; maxHeight: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const selected = options.find((o) => o.value === value);
   const filtered = searchable && query.trim() ? options.filter((o) => o.label.toLowerCase().includes(query.trim().toLowerCase())) : options;
@@ -243,7 +250,20 @@ function Dropdown({
   const toggleOpen = () => {
     if (!isOpen && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      // Always opening downward runs the list off the bottom of the screen when the field sits
+      // near the viewport edge - flip upward once there's genuinely more room that way, and cap
+      // the list to whichever space is actually available instead of a fixed height either way.
+      const openUpward = spaceBelow < 260 && spaceAbove > spaceBelow;
+      const available = (openUpward ? spaceAbove : spaceBelow) - 16;
+      setPos({
+        top: openUpward ? undefined : rect.bottom + 4,
+        bottom: openUpward ? window.innerHeight - rect.top + 4 : undefined,
+        left: rect.left,
+        width: rect.width,
+        maxHeight: Math.max(120, available)
+      });
     }
     setIsOpen((v) => !v);
   };
@@ -280,11 +300,11 @@ function Dropdown({
             }}
           />
           <div
-            className="fixed z-50 rounded-xl border border-ink-150 bg-white shadow-lg animate-fade-in min-w-max"
-            style={{ top: pos.top, left: pos.left, minWidth: pos.width }}
+            className="fixed z-50 rounded-xl border border-ink-150 bg-white shadow-lg animate-fade-in min-w-max flex flex-col"
+            style={{ top: pos.top, bottom: pos.bottom, left: pos.left, minWidth: pos.width, maxHeight: pos.maxHeight }}
           >
             {searchable && (
-              <div className="p-1.5 border-b border-ink-100">
+              <div className="p-1.5 border-b border-ink-100 shrink-0">
                 <input
                   autoFocus
                   type="text"
@@ -296,7 +316,7 @@ function Dropdown({
                 />
               </div>
             )}
-            <div className="max-h-52 overflow-y-auto scrollbar-none py-1 divide-y divide-ink-50">
+            <div className="overflow-y-auto scrollbar-none py-1 divide-y divide-ink-50">
               {clearable && (
                 <div
                   onClick={() => {
@@ -332,7 +352,7 @@ function Dropdown({
               )}
             </div>
             {stickyOption && (
-              <div className="p-1.5 border-t border-ink-100">
+              <div className="p-1.5 border-t border-ink-100 shrink-0">
                 <button
                   type="button"
                   onClick={() => {
@@ -368,6 +388,8 @@ export default function TimesheetPage() {
   // Sat/Sun are shown in the grid for a complete week view, but aren't fillable - kept
   // separate from weekDays/weekDateIsos so the save/submit/cap logic never has to filter them out.
   const displayDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
+  // Can't log time for a week that hasn't happened yet - the forward arrow stops here.
+  const isCurrentOrFutureWeek = weekStart.getTime() >= getMonday(new Date()).getTime();
 
   const [ticketsByProject, setTicketsByProject] = useState<Record<number, JiraTicket[]>>({});
   const [ticketsLoading, setTicketsLoading] = useState<Record<number, boolean>>({});
@@ -693,11 +715,13 @@ export default function TimesheetPage() {
 
     setIsSavingGrid(true);
     try {
-      await Promise.all([
-        ...toCreate.map((v) => createTimesheetEntry(v)),
-        ...toUpdate.map((u) => updateTimesheetEntry(u.id, u.values)),
-        ...toDelete.map((id) => deleteTimesheetEntry(id))
-      ]);
+      // A full week across several groups can mean dozens of entries saving at once - firing
+      // them all in one Promise.all can outrun the database's own connection limit (the same
+      // "max clients reached" crash seen on the ticket-fetch path). Batching keeps peak
+      // concurrent requests low regardless of how many entries are being saved.
+      await runInBatches(toCreate, SAVE_CONCURRENCY_LIMIT, (v) => createTimesheetEntry(v));
+      await runInBatches(toUpdate, SAVE_CONCURRENCY_LIMIT, (u) => updateTimesheetEntry(u.id, u.values));
+      await runInBatches(toDelete, SAVE_CONCURRENCY_LIMIT, (id) => deleteTimesheetEntry(id));
       const changeCount = toCreate.length + toUpdate.length + toDelete.length;
       showNotification("success", `Saved ${changeCount} ${changeCount === 1 ? "change" : "changes"}.`);
       const fresh = await refreshEntries();
@@ -812,7 +836,9 @@ export default function TimesheetPage() {
               <span className="text-xs font-black text-ink-800">{formatWeekRange(weekDays[0], weekDays[4])}</span>
               <button
                 onClick={() => goToWeek(addDays(weekStart, 7))}
-                className="p-1.5 rounded-lg border border-ink-200 bg-white text-ink-500 hover:bg-ink-50 transition-all"
+                disabled={isCurrentOrFutureWeek}
+                title={isCurrentOrFutureWeek ? "Can't log time for a future week" : undefined}
+                className="p-1.5 rounded-lg border border-ink-200 bg-white text-ink-500 hover:bg-ink-50 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
