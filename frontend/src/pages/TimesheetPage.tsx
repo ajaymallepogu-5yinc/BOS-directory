@@ -16,32 +16,49 @@ import { useTimesheetNotifications } from "../context/TimesheetNotificationsCont
 
 const MAX_DAILY_HOURS = 8;
 
-type EntryMode = "ticket" | "task";
-
+/** One "what" line under a project: either a ticket (pickerValue = "ticket:KEY") or an
+ * activity type (pickerValue = "type:CODE"). OTH additionally carries a free-text description. */
 interface GridRow {
   id: number;
-  mode: EntryMode;
-  ticketValue: string; // composite "projectId:ticketKey" when mode === "ticket"
-  taskDescription: string;
-  taskProjectId: number | null;
-  activityCode: string; // short-form activity type, e.g. "DSM" - see ACTIVITY_CODES
+  pickerValue: string;
+  description: string;
   hours: Record<string, string>;
   comments: Record<string, string>; // per-day comment, since each day saves as its own entry
   entryIds: Record<string, number>; // day -> saved entry id, so Save updates/deletes instead of duplicating
 }
 
-function makeEmptyGridRow(id: number, weekDates: string[]): GridRow {
+/** A project picked once, with every "what" item logged against it living underneath. */
+interface ProjectGroup {
+  id: number;
+  projectId: number | null;
+  rows: GridRow[];
+}
+
+const TICKET_PREFIX = "ticket:";
+const TYPE_PREFIX = "type:";
+const isTicketValue = (v: string) => v.startsWith(TICKET_PREFIX);
+const ticketKeyOf = (v: string) => v.slice(TICKET_PREFIX.length);
+const typeCodeOf = (v: string) => (v.startsWith(TYPE_PREFIX) ? v.slice(TYPE_PREFIX.length) : "");
+
+function makeEmptyRow(id: number, weekDates: string[]): GridRow {
   return {
     id,
-    mode: "ticket",
-    ticketValue: "",
-    taskDescription: "",
-    taskProjectId: null,
-    activityCode: "",
+    pickerValue: "",
+    description: "",
     hours: Object.fromEntries(weekDates.map((d) => [d, ""])),
     comments: {},
     entryIds: {}
   };
+}
+
+function makeEmptyGroup(id: number, weekDates: string[], nextId: () => number): ProjectGroup {
+  return { id, projectId: null, rows: [makeEmptyRow(nextId(), weekDates)] };
+}
+
+/** Never leaves the grid with zero groups - a fresh/all-cleared week keeps one empty group to type into. */
+function pruneEmptyGroups(groups: ProjectGroup[], weekIsos: string[], nextId: () => number): ProjectGroup[] {
+  const kept = groups.filter((g) => g.rows.length > 0);
+  return kept.length > 0 ? kept : [makeEmptyGroup(nextId(), weekIsos, nextId)];
 }
 
 // Approval is a whole-week decision now (Timesheet.Status), not per-entry - once submitted
@@ -51,57 +68,61 @@ function isWeekLocked(status: TimesheetEntry["timesheetStatus"] | undefined): bo
   return status === "Pending" || status === "Approved";
 }
 
-// Rebuilds the grid from every entry for the given week (any status), grouping same ticket/task
-// back into one row across days - this is what makes previously-entered hours show up again
-// instead of the grid always looking blank, and keeps submitted/approved/rejected rows visible
-// instead of them disappearing once no longer Draft.
-function buildGridRows(entries: TimesheetEntry[], weekIsos: string[], nextId: () => number): GridRow[] {
+/** Rebuilds project groups from every entry for the given week (any status), grouping same
+ * ticket/type back into one row within its project's group - this is what makes previously-entered
+ * hours show up again instead of the grid always looking blank, and keeps submitted/approved/rejected
+ * rows visible instead of them disappearing once no longer Draft. Entries from before activity types
+ * existed (no ActivityCode, just a TaskDescription) fall back to OTH so they still render sensibly. */
+function buildProjectGroups(entries: TimesheetEntry[], weekIsos: string[], nextId: () => number): ProjectGroup[] {
   const relevant = entries.filter((e) => weekIsos.includes(e.workDate.slice(0, 10)));
-  const groups = new Map<string, GridRow>();
+  const groupRows = new Map<number, Map<string, GridRow>>(); // projectKey -> (itemKey -> row)
+  const projectOrder: number[] = [];
+
   for (const e of relevant) {
+    const projectKey = e.projectId ?? -1;
+    if (!groupRows.has(projectKey)) {
+      groupRows.set(projectKey, new Map());
+      projectOrder.push(projectKey);
+    }
+    const rows = groupRows.get(projectKey)!;
+
     const isTicket = !!e.jiraIssueKey;
-    const key = isTicket ? `t:${e.projectId}:${e.jiraIssueKey}` : `k:${e.projectId ?? ""}:${e.taskDescription ?? ""}`;
-    let row = groups.get(key);
+    const effectiveCode = e.activityCode || (!isTicket && e.taskDescription ? "OTH" : "");
+    const itemKey = isTicket ? `${TICKET_PREFIX}${e.jiraIssueKey}` : `${TYPE_PREFIX}${effectiveCode}`;
+
+    let row = rows.get(itemKey);
     if (!row) {
       row = {
         id: nextId(),
-        mode: isTicket ? "ticket" : "task",
-        ticketValue: isTicket ? `${e.projectId}:${e.jiraIssueKey}` : "",
-        taskDescription: isTicket ? "" : e.taskDescription || "",
-        taskProjectId: isTicket ? null : e.projectId ?? null,
-        activityCode: e.activityCode || "",
+        pickerValue: itemKey,
+        description: !isTicket && effectiveCode === "OTH" ? e.taskDescription || "" : "",
         hours: Object.fromEntries(weekIsos.map((d) => [d, ""])),
         comments: {},
         entryIds: {}
       };
-      groups.set(key, row);
+      rows.set(itemKey, row);
     }
     const dayIso = e.workDate.slice(0, 10);
     row.hours[dayIso] = String(e.hoursSpent);
     if (e.comment) row.comments[dayIso] = e.comment;
     row.entryIds[dayIso] = e.id;
   }
-  // Rows come out of the Map in whatever order their ticket/task was first encountered while
-  // walking `entries` - and entries arrive sorted by work date descending, so a row whose only
-  // hours land on a later day (e.g. Friday) gets grouped before one that started on Monday. Sort
-  // by each row's oldest entry id instead - a stable "whichever ticket was actually added first"
-  // order that doesn't shuffle depending on which day happens to have hours.
-  const rows = [...groups.values()].sort(
-    (a, b) => Math.min(...Object.values(a.entryIds)) - Math.min(...Object.values(b.entryIds))
-  );
-  // Only when the week is otherwise completely empty - a fresh/all-cleared week starts with one
-  // ready-to-type row instead of looking blank, but saving/reloading never re-adds one on top of
-  // real rows (that's what "+ Add Ticket" is for).
-  return rows.length > 0 ? rows : [makeEmptyGridRow(nextId(), weekIsos)];
+
+  const groups: ProjectGroup[] = projectOrder.map((projectKey) => {
+    const rowsMap = groupRows.get(projectKey)!;
+    // Same ordering rationale as the old flat grid: sort by each row's earliest entry id, not by
+    // whichever day happens to carry hours, so re-saving/reloading doesn't shuffle row order.
+    const rows = [...rowsMap.values()].sort(
+      (a, b) => Math.min(...Object.values(a.entryIds)) - Math.min(...Object.values(b.entryIds))
+    );
+    return { id: nextId(), projectId: projectKey === -1 ? null : projectKey, rows };
+  });
+
+  return groups.length > 0 ? groups : [makeEmptyGroup(nextId(), weekIsos, nextId)];
 }
 
 function weekIsosFor(start: Date): string[] {
   return Array.from({ length: 5 }, (_, i) => toIsoDate(addDays(start, i)));
-}
-
-function splitTicketValue(value: string): { projectId: number; ticketKey: string } {
-  const idx = value.indexOf(":");
-  return { projectId: Number(value.slice(0, idx)), ticketKey: value.slice(idx + 1) };
 }
 
 function getMonday(date: Date): Date {
@@ -128,8 +149,9 @@ function toIsoDate(date: Date): string {
 
 const HOUR_STEP = 0.25; // 15 minutes, matches the old numeric input's step
 
-// Activity type short forms every row is tagged with, alongside its ticket/task - shown in full
-// in the legend popover next to the column header.
+// Activity type short forms every "what" item can be tagged as - shown in full in the legend
+// popover next to the column header. JT was removed: picking a real ticket already says "this is
+// ticket work," so a separate tag saying the same thing was redundant.
 const ACTIVITY_CODES: { code: string; type: string; explanation: string }[] = [
   { code: "DSM", type: "Daily Standup Meetings", explanation: "Daily Scrum/Standup/Syncup Meeting" },
   { code: "SRM", type: "Sprint Review Meetings", explanation: "Sprint Kick off Meeting, Mid Sprint Review, Sprint Product Review, Sprint Retrospection" },
@@ -139,11 +161,10 @@ const ACTIVITY_CODES: { code: string; type: string; explanation: string }[] = [
   { code: "AHM", type: "All Hands Meeting", explanation: "All Hands Meeting with entire Organization" },
   { code: "INTM", type: "Internal Meetings", explanation: "Other internal Team Meetings, syncups, checkins, reviews, 1-1, etc." },
   { code: "EXTM", type: "External Meetings", explanation: "With external persons/vendors/third-party" },
-  { code: "OTH", type: "Other", explanation: "Other" },
+  { code: "OTH", type: "Other", explanation: "Other - describe it in the field that appears once picked" },
   { code: "PRA", type: "", explanation: "Pull Request review and approval" },
   { code: "PRC", type: "", explanation: "Conflict resolution" },
   { code: "ARB", type: "Architectural Review", explanation: "Technical Architecture / Implementation approach Reviews" },
-  { code: "JT", type: "Jira Ticket", explanation: "Any work of the team needs to be in the form of a Jira ticket (work item in Jira), that needs to be tagged in the comment" },
   { code: "RPT", type: "Reports", explanation: "WSR/MSR/QSR - Weekly/Monthly/Quarterly Status Review" },
   { code: "DOC", type: "Documentation", explanation: "Process documentation/ any other documentation other than project doc" },
   { code: "REV", type: "Review", explanation: "Work review/ Validation/ Follow ups/ Coordination" },
@@ -154,11 +175,10 @@ const ACTIVITY_CODES: { code: string; type: string; explanation: string }[] = [
   { code: "SAM", type: "Sales & Marketing", explanation: "Tasks related to Sales and Marketing" }
 ];
 
-const ACTIVITY_CODE_OPTIONS: DropdownOption[] = ACTIVITY_CODES.map((a) => ({ value: a.code, label: a.code }));
-const OTHER_TICKET_VALUE = "__other__"; // sentinel: last entry in the ticket dropdown, switches the row to task mode
+const ACTIVITY_TYPE_OPTIONS: DropdownOption[] = ACTIVITY_CODES.map((a) => ({ value: `${TYPE_PREFIX}${a.code}`, label: a.code }));
 
 // row.hours[d] keeps storing decimal hours (e.g. "2.25") - only the on-screen
-// representation is H:MM, so rowTotal/handleSaveGrid/buildGridRows stay untouched.
+// representation is H:MM, so rowTotal/handleSaveGrid/buildProjectGroups stay untouched.
 function hoursToTimeLabel(value: string): string {
   const v = parseFloat(value);
   const total = !value || isNaN(v) || v <= 0 ? 0 : v;
@@ -352,19 +372,19 @@ export default function TimesheetPage() {
   const [ticketsByProject, setTicketsByProject] = useState<Record<number, JiraTicket[]>>({});
   const [ticketsLoading, setTicketsLoading] = useState<Record<number, boolean>>({});
 
-  const nextRowId = useRef(1);
-  const [rows, setRows] = useState<GridRow[]>([]);
+  const nextLocalId = useRef(1);
+  const [groups, setGroups] = useState<ProjectGroup[]>([]);
   const rowRefs = useRef<Record<number, HTMLTableRowElement | null>>({});
   const pendingScrollRowId = useRef<number | null>(null);
   const [isSavingGrid, setIsSavingGrid] = useState(false);
-  const [openCommentCell, setOpenCommentCell] = useState<{ rowId: number; day: string; top: number; left: number } | null>(null);
+  const [openCommentCell, setOpenCommentCell] = useState<{ groupId: number; rowId: number; day: string; top: number; left: number } | null>(null);
   // Raw text buffer for whichever hours cell is actively being typed into (see parseHoursInput) -
   // only exists once the user presses a key; row.hours (decimal) is committed on blur/wheel.
-  const [editingCell, setEditingCell] = useState<{ rowId: number; day: string; text: string } | null>(null);
+  const [editingCell, setEditingCell] = useState<{ groupId: number; rowId: number; day: string; text: string } | null>(null);
 
   // Row-removal confirm state (only asked when the row has saved entries behind it)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [rowToDelete, setRowToDelete] = useState<number | null>(null);
+  const [rowToDelete, setRowToDelete] = useState<{ groupId: number; rowId: number } | null>(null);
 
   // Submit Week state
   const [submitWeekConfirmOpen, setSubmitWeekConfirmOpen] = useState(false);
@@ -387,7 +407,7 @@ export default function TimesheetPage() {
       const [projList, mine] = await Promise.all([fetchProjects(), fetchTimesheetEntries("mine")]);
       setProjects(projList);
       setMyEntries(mine);
-      setRows(buildGridRows(mine, weekDateIsos, () => nextRowId.current++));
+      setGroups(buildProjectGroups(mine, weekDateIsos, () => nextLocalId.current++));
     } catch (err: any) {
       setErrorMsg(err.response?.data?.message || "Failed to load timesheet data.");
     } finally {
@@ -427,21 +447,21 @@ export default function TimesheetPage() {
     });
   };
 
-  // Eagerly warm the ticket cache for every project so the unified search box has
-  // something to search across as soon as the user starts typing.
+  // Eagerly warm the ticket cache for every project so each group's combined picker has
+  // something to search across as soon as a project is picked for that group.
   useEffect(() => {
     projects.forEach((p) => ensureTicketsLoaded(p.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects]);
 
-  const allTicketOptions = useMemo<DropdownOption[]>(() => {
-    return projects.flatMap((p) =>
-      (ticketsByProject[p.id] || []).map((t) => ({
-        value: `${p.id}:${t.key}`,
-        label: `${p.name} — ${t.summary} · ${t.key}`
-      }))
-    );
-  }, [projects, ticketsByProject]);
+  // Activity types + this group's project's tickets (already filtered to just this person's
+  // assigned tickets server-side), merged into one search list.
+  const combinedOptionsFor = (projectId: number | null): DropdownOption[] => {
+    const ticketOptions: DropdownOption[] = projectId != null
+      ? (ticketsByProject[projectId] || []).map((t) => ({ value: `${TICKET_PREFIX}${t.key}`, label: `${t.key} · ${t.summary}` }))
+      : [];
+    return [...ACTIVITY_TYPE_OPTIONS, ...ticketOptions];
+  };
 
   const anyTicketsLoading = useMemo(() => Object.values(ticketsLoading).some(Boolean), [ticketsLoading]);
 
@@ -454,10 +474,17 @@ export default function TimesheetPage() {
   const weekStatus: TimesheetEntry["timesheetStatus"] = weekEntries[0]?.timesheetStatus ?? "Draft";
   const weekLocked = isWeekLocked(weekStatus);
 
-  const addRow = () => {
-    const id = nextRowId.current++;
+  const addRow = (groupId: number) => {
+    const id = nextLocalId.current++;
     pendingScrollRowId.current = id;
-    setRows((prev) => [...prev, makeEmptyGridRow(id, weekDateIsos)]);
+    setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, rows: [...g.rows, makeEmptyRow(id, weekDateIsos)] } : g)));
+  };
+
+  const addGroup = () => {
+    const groupId = nextLocalId.current++;
+    const rowId = nextLocalId.current++;
+    pendingScrollRowId.current = rowId;
+    setGroups((prev) => [...prev, { id: groupId, projectId: null, rows: [makeEmptyRow(rowId, weekDateIsos)] }]);
   };
 
   // Scrolls the newly-added row into view - otherwise it's added below the fold of the
@@ -466,28 +493,38 @@ export default function TimesheetPage() {
     if (pendingScrollRowId.current == null) return;
     rowRefs.current[pendingScrollRowId.current]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     pendingScrollRowId.current = null;
-  }, [rows]);
+  }, [groups]);
 
   // Removing a row backed by already-saved entries needs confirmation (and a server-side delete),
   // otherwise it'd silently reappear next time the grid rehydrates (e.g. on Save or week nav).
-  // A row with nothing saved yet is just removed locally, no confirmation needed.
-  const removeRow = (id: number) => {
-    const row = rows.find((r) => r.id === id);
+  // A row with nothing saved yet is just removed locally, no confirmation needed. A group left
+  // with zero rows is pruned automatically, same as the old flat grid never showing zero rows.
+  const removeRow = (groupId: number, rowId: number) => {
+    const group = groups.find((g) => g.id === groupId);
+    const row = group?.rows.find((r) => r.id === rowId);
     const idsToDelete = row ? Object.values(row.entryIds) : [];
     if (idsToDelete.length === 0) {
-      setRows((prev) => prev.filter((r) => r.id !== id));
+      setGroups((prev) =>
+        pruneEmptyGroups(
+          prev.map((g) => (g.id === groupId ? { ...g, rows: g.rows.filter((r) => r.id !== rowId) } : g)),
+          weekDateIsos,
+          () => nextLocalId.current++
+        )
+      );
       return;
     }
-    setRowToDelete(id);
+    setRowToDelete({ groupId, rowId });
     setDeleteConfirmOpen(true);
   };
 
   // The whole week is either editable or not - Pending/Approved weeks leave every saved entry
   // untouched even if the row itself is being removed.
   const handleConfirmRemoveRow = async () => {
-    if (rowToDelete === null) return;
+    if (!rowToDelete) return;
     setDeleteConfirmOpen(false);
-    const row = rows.find((r) => r.id === rowToDelete);
+    const { groupId, rowId } = rowToDelete;
+    const group = groups.find((g) => g.id === groupId);
+    const row = group?.rows.find((r) => r.id === rowId);
     const removableIds = row && !weekLocked ? weekDateIsos.filter((d) => row.entryIds[d]).map((d) => row.entryIds[d]) : [];
     const hadLockedDays = row && weekLocked ? weekDateIsos.some((d) => row.entryIds[d]) : false;
 
@@ -504,7 +541,7 @@ export default function TimesheetPage() {
         hadLockedDays ? "Removed the editable entries - submitted/approved days were left as-is." : "Row removed."
       );
       const fresh = await refreshEntries();
-      setRows(buildGridRows(fresh, weekDateIsos, () => nextRowId.current++));
+      setGroups(buildProjectGroups(fresh, weekDateIsos, () => nextLocalId.current++));
     } catch (err: any) {
       showNotification("error", err.response?.data?.message || "Failed to remove entries.");
     } finally {
@@ -514,16 +551,37 @@ export default function TimesheetPage() {
 
   const goToWeek = (newStart: Date) => {
     setWeekStart(newStart);
-    setRows(buildGridRows(myEntries, weekIsosFor(newStart), () => nextRowId.current++));
+    setGroups(buildProjectGroups(myEntries, weekIsosFor(newStart), () => nextLocalId.current++));
   };
 
-  const updateRow = (id: number, patch: Partial<GridRow>) =>
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  const updateRow = (groupId: number, rowId: number, patch: Partial<GridRow>) =>
+    setGroups((prev) => prev.map((g) => (g.id !== groupId ? g : { ...g, rows: g.rows.map((r) => (r.id === rowId ? { ...r, ...patch } : r)) })));
 
-  const updateHour = (id: number, dateIso: string, value: string) =>
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, hours: { ...r.hours, [dateIso]: value } } : r)));
+  const updateHour = (groupId: number, rowId: number, dateIso: string, value: string) =>
+    setGroups((prev) =>
+      prev.map((g) =>
+        g.id !== groupId
+          ? g
+          : { ...g, rows: g.rows.map((r) => (r.id !== rowId ? r : { ...r, hours: { ...r.hours, [dateIso]: value } })) }
+      )
+    );
+
+  // Changing a group's project invalidates any ticket already picked in it (a ticket belongs to
+  // one specific project) - type-only rows (DSM, OTH, ...) aren't project-specific, so they stay.
+  const updateGroupProject = (groupId: number, projectId: number | null) =>
+    setGroups((prev) =>
+      prev.map((g) =>
+        g.id !== groupId
+          ? g
+          : { ...g, projectId, rows: g.rows.map((r) => (isTicketValue(r.pickerValue) ? { ...r, pickerValue: "" } : r)) }
+      )
+    );
 
   const rowTotal = (row: GridRow) => weekDateIsos.reduce((sum, d) => sum + (parseFloat(row.hours[d]) || 0), 0);
+  const groupTotal = (group: ProjectGroup) => group.rows.reduce((sum, r) => sum + rowTotal(r), 0);
+  const dayTotal = (dateIso: string) =>
+    groups.reduce((sum, g) => sum + g.rows.reduce((s, r) => s + (parseFloat(r.hours[dateIso]) || 0), 0), 0);
+  const weekGrandTotal = weekDateIsos.reduce((sum, d) => sum + dayTotal(d), 0);
 
   const handleSaveGrid = async () => {
     if (weekLocked) {
@@ -534,10 +592,12 @@ export default function TimesheetPage() {
     // Cells already backed by a saved entry (row.entryIds) must be updated/deleted in place, not
     // recreated - otherwise every re-save would duplicate the hours already on the server.
     const touchedIds = new Set<number>();
-    for (const row of rows) {
-      for (const d of weekDateIsos) {
-        const id = row.entryIds[d];
-        if (id) touchedIds.add(id);
+    for (const group of groups) {
+      for (const row of group.rows) {
+        for (const d of weekDateIsos) {
+          const id = row.entryIds[d];
+          if (id) touchedIds.add(id);
+        }
       }
     }
 
@@ -552,59 +612,64 @@ export default function TimesheetPage() {
     const toUpdate: { id: number; values: TimesheetEntryFormValues }[] = [];
     const toDelete: number[] = [];
 
-    for (const row of rows) {
-      const filledDays = weekDateIsos.filter((d) => {
-        const v = parseFloat(row.hours[d]);
-        return !isNaN(v) && v > 0;
-      });
-      const clearedDays = weekDateIsos.filter((d) => {
-        const v = parseFloat(row.hours[d]);
-        return (isNaN(v) || v <= 0) && !!row.entryIds[d];
-      });
-      if (filledDays.length === 0 && clearedDays.length === 0) continue;
+    for (const group of groups) {
+      for (const row of group.rows) {
+        const filledDays = weekDateIsos.filter((d) => {
+          const v = parseFloat(row.hours[d]);
+          return !isNaN(v) && v > 0;
+        });
+        const clearedDays = weekDateIsos.filter((d) => {
+          const v = parseFloat(row.hours[d]);
+          return (isNaN(v) || v <= 0) && !!row.entryIds[d];
+        });
+        if (filledDays.length === 0 && clearedDays.length === 0) continue;
 
-      const hasTicket = row.mode === "ticket" && !!row.ticketValue;
-      const hasTask = row.mode === "task" && !!row.taskDescription.trim();
-      if (filledDays.length > 0 && !hasTicket && !hasTask) {
-        showNotification("error", row.mode === "ticket" ? "Select a ticket for every row with hours entered." : "Describe the work for every row with hours entered.");
-        return;
+        if (filledDays.length > 0) {
+          if (!row.pickerValue) {
+            showNotification("error", "Pick a ticket or an activity type for every row with hours entered.");
+            return;
+          }
+          if (group.projectId == null) {
+            showNotification("error", "Pick a project for every group before saving.");
+            return;
+          }
+        }
+
+        const isTicket = isTicketValue(row.pickerValue);
+        const ticketKey = isTicket ? ticketKeyOf(row.pickerValue) : undefined;
+        const activityCode = !isTicket && row.pickerValue ? typeCodeOf(row.pickerValue) : undefined;
+        const ticketSummary =
+          isTicket && group.projectId != null ? ticketsByProject[group.projectId]?.find((t) => t.key === ticketKey)?.summary : undefined;
+
+        if (filledDays.length > 0 && activityCode === "OTH" && !row.description.trim()) {
+          showNotification("error", "Describe what \"Other\" means for that row.");
+          return;
+        }
+
+        for (const d of filledDays) {
+          const hrs = parseFloat(row.hours[d]);
+          dayTotals[d] = (dayTotals[d] || 0) + hrs;
+          const values: TimesheetEntryFormValues = {
+            projectId: group.projectId,
+            jiraIssueKey: ticketKey,
+            jiraIssueSummary: ticketSummary,
+            taskDescription: activityCode === "OTH" ? row.description.trim() : undefined,
+            activityCode,
+            workDate: d,
+            hoursSpent: hrs,
+            comment: (row.comments[d] || "").trim() || undefined
+          };
+          const existingId = row.entryIds[d];
+          if (existingId) toUpdate.push({ id: existingId, values });
+          else toCreate.push(values);
+        }
+
+        for (const d of clearedDays) toDelete.push(row.entryIds[d]);
       }
-
-      let projectId: number | null = null;
-      let ticketKey: string | undefined;
-      let ticketSummary: string | undefined;
-      if (hasTicket) {
-        const parsed = splitTicketValue(row.ticketValue);
-        projectId = parsed.projectId;
-        ticketKey = parsed.ticketKey;
-        ticketSummary = ticketsByProject[projectId]?.find((t) => t.key === ticketKey)?.summary;
-      } else {
-        projectId = row.taskProjectId;
-      }
-
-      for (const d of filledDays) {
-        const hrs = parseFloat(row.hours[d]);
-        dayTotals[d] = (dayTotals[d] || 0) + hrs;
-        const values: TimesheetEntryFormValues = {
-          projectId,
-          jiraIssueKey: hasTicket ? ticketKey : undefined,
-          jiraIssueSummary: hasTicket ? ticketSummary : undefined,
-          taskDescription: hasTask ? row.taskDescription.trim() : undefined,
-          activityCode: row.activityCode || undefined,
-          workDate: d,
-          hoursSpent: hrs,
-          comment: (row.comments[d] || "").trim() || undefined
-        };
-        const existingId = row.entryIds[d];
-        if (existingId) toUpdate.push({ id: existingId, values });
-        else toCreate.push(values);
-      }
-
-      for (const d of clearedDays) toDelete.push(row.entryIds[d]);
     }
 
     if (toCreate.length === 0 && toUpdate.length === 0 && toDelete.length === 0) {
-      showNotification("error", "Enter hours for at least one ticket before saving.");
+      showNotification("error", "Enter hours for at least one item before saving.");
       return;
     }
 
@@ -624,12 +689,12 @@ export default function TimesheetPage() {
       const changeCount = toCreate.length + toUpdate.length + toDelete.length;
       showNotification("success", `Saved ${changeCount} ${changeCount === 1 ? "change" : "changes"}.`);
       const fresh = await refreshEntries();
-      setRows(buildGridRows(fresh, weekDateIsos, () => nextRowId.current++));
+      setGroups(buildProjectGroups(fresh, weekDateIsos, () => nextLocalId.current++));
       refreshNotifications();
     } catch (err: any) {
       showNotification("error", err.response?.data?.message || "Failed to save some entries. Please check and try again.");
       const fresh = await refreshEntries();
-      setRows(buildGridRows(fresh, weekDateIsos, () => nextRowId.current++));
+      setGroups(buildProjectGroups(fresh, weekDateIsos, () => nextLocalId.current++));
     } finally {
       setIsSavingGrid(false);
     }
@@ -665,7 +730,7 @@ export default function TimesheetPage() {
       showNotification("success", `Submitted ${result.submittedCount} ${result.submittedCount === 1 ? "entry" : "entries"} to your manager.`);
       setSubmitWeekConfirmOpen(false);
       const fresh = await refreshEntries();
-      setRows(buildGridRows(fresh, weekDateIsos, () => nextRowId.current++));
+      setGroups(buildProjectGroups(fresh, weekDateIsos, () => nextLocalId.current++));
       refreshNotifications();
     } catch (err: any) {
       showNotification("error", err.response?.data?.message || "Failed to submit week.");
@@ -685,6 +750,9 @@ export default function TimesheetPage() {
     const endStr = end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
     return `${startStr} – ${endStr}`;
   };
+
+  const projectOptions: DropdownOption[] = projects.map((p) => ({ value: String(p.id), label: p.name }));
+  const projectName = (id: number | null) => (id == null ? null : projects.find((p) => p.id === id)?.name);
 
   return (
     <div className="h-full flex flex-col bg-ink-50/20 p-8 overflow-y-auto scrollbar-none">
@@ -708,7 +776,7 @@ export default function TimesheetPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-ink-150 pb-6 mb-6">
         <div>
           <h1 className="font-display text-2xl font-black text-ink-900 leading-tight">Timesheet</h1>
-          <p className="text-xs text-ink-500 mt-1">Log time throughout the week as drafts, then submit the whole week to your manager for approval.</p>
+          <p className="text-xs text-ink-500 mt-1">Pick a project once, then log every ticket or activity type under it for the week.</p>
         </div>
       </div>
 
@@ -773,16 +841,15 @@ export default function TimesheetPage() {
             )}
           </div>
 
-          {/* Weekly entry grid - search a ticket once, fill hours across whichever days apply */}
+          {/* Weekly entry grid - grouped by project, one picker per group, "what" items underneath */}
           <div className="shrink-0">
             <div className="rounded-2xl border border-ink-150 bg-white shadow-sm overflow-x-auto scrollbar-none">
-              <table className="w-full text-left border-collapse min-w-[920px]">
+              <table className="w-full text-left border-collapse min-w-[900px]">
                 <thead className="sticky top-0 z-10">
                   <tr className="border-b border-ink-150 bg-ink-50 text-[10px] font-bold uppercase tracking-wider text-ink-500">
-                    <th className="py-3 px-4 w-64">Ticket / Task</th>
-                    <th className="py-3 px-2 w-24">
+                    <th className="py-3 px-4 w-72">
                       <div className="flex items-center gap-1.5">
-                        <span>Type</span>
+                        <span>What</span>
                         <button
                           ref={legendButtonRef}
                           type="button"
@@ -816,193 +883,222 @@ export default function TimesheetPage() {
                     <th className="py-3 px-3 w-10"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-ink-100">
-                  {rows.map((row) => (
-                    <tr
-                      key={row.id}
-                      ref={(el) => { rowRefs.current[row.id] = el; }}
-                      className="scroll-mb-14" // reserves room so scrollIntoView clears the sticky footer instead of landing underneath it
-                    >
-                      <td className="py-3 px-4 align-top">
-                        <div className="flex flex-col gap-1.5">
-                          {row.mode === "ticket" ? (
+
+                {groups.map((group) => (
+                  <tbody key={group.id} className="border-t-2 border-ink-100">
+                    <tr className="bg-brand/5">
+                      <td colSpan={displayDays.length + 3} className="py-2.5 px-4">
+                        <div className="flex items-center gap-3">
+                          <span className="text-[9px] font-bold uppercase tracking-wide text-ink-400 shrink-0">Project</span>
+                          <div className="w-60">
                             <Dropdown
-                              value={row.ticketValue}
-                              onChange={(v) =>
-                                v === OTHER_TICKET_VALUE
-                                  ? updateRow(row.id, { mode: "task", ticketValue: "" })
-                                  : updateRow(row.id, { ticketValue: v })
-                              }
-                              options={allTicketOptions}
-                              stickyOption={{ value: OTHER_TICKET_VALUE, label: "Other (no ticket)" }}
-                              placeholder={anyTicketsLoading ? "Loading tickets..." : "Search any ticket..."}
-                              clearable={false}
+                              value={group.projectId ? String(group.projectId) : ""}
+                              onChange={(v) => updateGroupProject(group.id, v ? Number(v) : null)}
+                              options={projectOptions}
+                              placeholder="Select a project…"
+                              disabled={weekLocked}
+                              searchable
+                            />
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {group.rows.map((row) => (
+                      <tr key={row.id} ref={(el) => { rowRefs.current[row.id] = el; }} className="scroll-mb-14">
+                        <td className="py-3 pl-8 pr-4 align-top">
+                          <div className="flex flex-col gap-1.5">
+                            <Dropdown
+                              value={row.pickerValue}
+                              onChange={(v) => updateRow(group.id, row.id, { pickerValue: v })}
+                              options={combinedOptionsFor(group.projectId)}
+                              placeholder={anyTicketsLoading ? "Loading tickets..." : "Search a type or a ticket..."}
                               searchable
                               disabled={weekLocked}
                             />
-                          ) : (
-                            <>
-                              <div className="flex items-center justify-between">
-                                <span className="text-[9px] font-bold text-ink-400 uppercase tracking-wide">Other work</span>
-                                {!weekLocked && (
-                                  <button
-                                    type="button"
-                                    onClick={() => updateRow(row.id, { mode: "ticket", taskDescription: "", taskProjectId: null })}
-                                    className="text-[9px] font-bold text-brand hover:underline"
-                                  >
-                                    Search a ticket instead
-                                  </button>
-                                )}
-                              </div>
+                            {typeCodeOf(row.pickerValue) === "OTH" && (
                               <input
                                 type="text"
-                                placeholder="What did you work on?"
-                                value={row.taskDescription}
+                                placeholder="Describe what you worked on"
+                                value={row.description}
                                 disabled={weekLocked}
-                                onChange={(e) => updateRow(row.id, { taskDescription: e.target.value })}
+                                onChange={(e) => updateRow(group.id, row.id, { description: e.target.value })}
                                 className="rounded-lg border border-ink-200 px-2 py-1.5 text-[11px] text-ink-800 placeholder-ink-400 focus:border-brand focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
                               />
-                              <Dropdown
-                                value={row.taskProjectId ? String(row.taskProjectId) : ""}
-                                onChange={(v) => updateRow(row.id, { taskProjectId: v ? Number(v) : null })}
-                                options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
-                                placeholder="Project (optional)"
-                                disabled={weekLocked}
-                              />
-                            </>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 px-2 align-top">
-                        <Dropdown
-                          value={row.activityCode}
-                          onChange={(v) => updateRow(row.id, { activityCode: v })}
-                          options={ACTIVITY_CODE_OPTIONS}
-                          placeholder="Type"
-                          disabled={weekLocked}
-                        />
-                      </td>
-                      {displayDays.map((dDate) => {
-                        const d = toIsoDate(dDate);
-                        if (!weekDateIsos.includes(d)) {
-                          // Sat/Sun - shown for a complete week view but not fillable.
+                            )}
+                          </div>
+                        </td>
+                        {displayDays.map((dDate) => {
+                          const d = toIsoDate(dDate);
+                          if (!weekDateIsos.includes(d)) {
+                            // Sat/Sun - shown for a complete week view but not fillable.
+                            return (
+                              <td key={d} className="py-3 px-2 align-top text-center">
+                                <div className="w-14 mx-auto py-1.5 text-[11px] text-ink-300">—</div>
+                              </td>
+                            );
+                          }
+                          const hasComment = !!(row.comments[d] || "").trim();
+                          const isPopupOpen = openCommentCell?.groupId === group.id && openCommentCell?.rowId === row.id && openCommentCell?.day === d;
+                          const isEditingCell = editingCell?.groupId === group.id && editingCell?.rowId === row.id && editingCell?.day === d;
+                          // While editing, show exactly what was typed (e.g. "2.3") rather than
+                          // live-converting it - the H:MM conversion only appears once committed on blur.
+                          const cellDisplayValue = isEditingCell ? editingCell!.text : hoursToTimeLabel(row.hours[d]);
+                          const cellTitle = row.comments[d] ? `Comment: ${row.comments[d]}` : undefined;
                           return (
-                            <td key={d} className="py-3 px-2 align-top text-center">
-                              <div className="w-14 mx-auto py-1.5 text-[11px] text-ink-300">—</div>
+                            <td key={d} className="py-3 px-2 align-top text-center relative">
+                              <div className="relative inline-block">
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={cellDisplayValue}
+                                  disabled={weekLocked}
+                                  title={cellTitle}
+                                  onChange={(e) => {
+                                    // Only reached by paste/IME - typed digits are handled in onKeyDown instead.
+                                    const raw = e.target.value.replace(/[^0-9.]/g, "");
+                                    const firstDot = raw.indexOf(".");
+                                    const text = firstDot === -1 ? raw : raw.slice(0, firstDot + 1) + raw.slice(firstDot + 1).replace(/\./g, "");
+                                    setEditingCell({ groupId: group.id, rowId: row.id, day: d, text: text.slice(0, 6) });
+                                  }}
+                                  onKeyDown={(e) => {
+                                    const current = isEditingCell ? editingCell!.text : "";
+                                    if (/^[0-9]$/.test(e.key)) {
+                                      e.preventDefault();
+                                      setEditingCell({ groupId: group.id, rowId: row.id, day: d, text: (current + e.key).slice(0, 6) });
+                                    } else if (e.key === "." && !current.includes(".")) {
+                                      e.preventDefault();
+                                      setEditingCell({ groupId: group.id, rowId: row.id, day: d, text: current + "." });
+                                    } else if (e.key === "Backspace") {
+                                      e.preventDefault();
+                                      // Not already editing (e.g. cell shows a committed "2:18") - seed the
+                                      // buffer from the stored decimal so backspace deletes into a real value
+                                      // instead of being a no-op until the user types a digit first.
+                                      const base = isEditingCell ? editingCell!.text : (parseFloat(row.hours[d]) > 0 ? String(parseFloat(row.hours[d])) : "");
+                                      setEditingCell({ groupId: group.id, rowId: row.id, day: d, text: base.slice(0, -1) });
+                                    } else if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      e.currentTarget.blur();
+                                    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+                                      e.preventDefault(); // digits and a single "." only
+                                    }
+                                  }}
+                                  onFocus={(e) => {
+                                    const rect = e.target.getBoundingClientRect();
+                                    setOpenCommentCell({ groupId: group.id, rowId: row.id, day: d, top: rect.bottom + 4, left: rect.left });
+                                  }}
+                                  onBlur={() => {
+                                    if (isEditingCell) {
+                                      const decimal = hoursInputToDecimalHours(editingCell!.text);
+                                      updateHour(group.id, row.id, d, decimal > 0 ? String(decimal) : "");
+                                      setEditingCell(null);
+                                    }
+                                  }}
+                                  onWheel={(e) => {
+                                    if (document.activeElement !== e.currentTarget) return; // don't hijack page scroll when not focused
+                                    e.preventDefault();
+                                    const current = parseFloat(row.hours[d]) || 0;
+                                    const delta = e.deltaY < 0 ? HOUR_STEP : -HOUR_STEP;
+                                    const next = Math.max(0, Math.round((current + delta) * 4) / 4);
+                                    updateHour(group.id, row.id, d, next > 0 ? String(next) : "");
+                                    setEditingCell(null);
+                                  }}
+                                  className={`w-14 rounded-lg border px-1.5 py-1.5 text-[11px] text-center text-ink-800 focus:outline-none disabled:opacity-70 disabled:cursor-not-allowed disabled:bg-ink-50 ${
+                                    isPopupOpen ? "border-brand" : "border-ink-200 focus:border-brand"
+                                  }`}
+                                />
+                                {hasComment && (
+                                  <svg
+                                    className="absolute -top-1.5 -right-1.5 h-4 w-4 text-ink-800 drop-shadow-sm"
+                                    fill="white"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                                    />
+                                  </svg>
+                                )}
+                              </div>
                             </td>
                           );
-                        }
-                        const hasComment = !!(row.comments[d] || "").trim();
-                        const isPopupOpen = openCommentCell?.rowId === row.id && openCommentCell?.day === d;
-                        const isEditingCell = editingCell?.rowId === row.id && editingCell?.day === d;
-                        // While editing, show exactly what was typed (e.g. "2.3") rather than
-                        // live-converting it - the H:MM conversion only appears once committed on blur.
-                        const cellDisplayValue = isEditingCell ? editingCell!.text : hoursToTimeLabel(row.hours[d]);
-                        const cellTitle = row.comments[d] ? `Comment: ${row.comments[d]}` : undefined;
-                        return (
-                          <td key={d} className="py-3 px-2 align-top text-center relative">
-                            <div className="relative inline-block">
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                value={cellDisplayValue}
-                                disabled={weekLocked}
-                                title={cellTitle}
-                                onChange={(e) => {
-                                  // Only reached by paste/IME - typed digits are handled in onKeyDown instead.
-                                  const raw = e.target.value.replace(/[^0-9.]/g, "");
-                                  const firstDot = raw.indexOf(".");
-                                  const text = firstDot === -1 ? raw : raw.slice(0, firstDot + 1) + raw.slice(firstDot + 1).replace(/\./g, "");
-                                  setEditingCell({ rowId: row.id, day: d, text: text.slice(0, 6) });
-                                }}
-                                onKeyDown={(e) => {
-                                  const current = isEditingCell ? editingCell!.text : "";
-                                  if (/^[0-9]$/.test(e.key)) {
-                                    e.preventDefault();
-                                    setEditingCell({ rowId: row.id, day: d, text: (current + e.key).slice(0, 6) });
-                                  } else if (e.key === "." && !current.includes(".")) {
-                                    e.preventDefault();
-                                    setEditingCell({ rowId: row.id, day: d, text: current + "." });
-                                  } else if (e.key === "Backspace") {
-                                    e.preventDefault();
-                                    // Not already editing (e.g. cell shows a committed "2:18") - seed the
-                                    // buffer from the stored decimal so backspace deletes into a real value
-                                    // instead of being a no-op until the user types a digit first.
-                                    const base = isEditingCell ? editingCell!.text : (parseFloat(row.hours[d]) > 0 ? String(parseFloat(row.hours[d])) : "");
-                                    setEditingCell({ rowId: row.id, day: d, text: base.slice(0, -1) });
-                                  } else if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    e.currentTarget.blur();
-                                  } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
-                                    e.preventDefault(); // digits and a single "." only
-                                  }
-                                }}
-                                onFocus={(e) => {
-                                  const rect = e.target.getBoundingClientRect();
-                                  setOpenCommentCell({ rowId: row.id, day: d, top: rect.bottom + 4, left: rect.left });
-                                }}
-                                onBlur={() => {
-                                  if (isEditingCell) {
-                                    const decimal = hoursInputToDecimalHours(editingCell!.text);
-                                    updateHour(row.id, d, decimal > 0 ? String(decimal) : "");
-                                    setEditingCell(null);
-                                  }
-                                }}
-                                onWheel={(e) => {
-                                  if (document.activeElement !== e.currentTarget) return; // don't hijack page scroll when not focused
-                                  e.preventDefault();
-                                  const current = parseFloat(row.hours[d]) || 0;
-                                  const delta = e.deltaY < 0 ? HOUR_STEP : -HOUR_STEP;
-                                  const next = Math.max(0, Math.round((current + delta) * 4) / 4);
-                                  updateHour(row.id, d, next > 0 ? String(next) : "");
-                                  setEditingCell(null);
-                                }}
-                                className={`w-14 rounded-lg border px-1.5 py-1.5 text-[11px] text-center text-ink-800 focus:outline-none disabled:opacity-70 disabled:cursor-not-allowed disabled:bg-ink-50 ${
-                                  isPopupOpen ? "border-brand" : "border-ink-200 focus:border-brand"
-                                }`}
-                              />
-                              {hasComment && <span className="absolute -top-1 -right-1 h-1.5 w-1.5 rounded-full bg-brand" />}
-                            </div>
-                          </td>
-                        );
-                      })}
-                      <td className="py-3 px-3 text-center align-top text-xs font-bold text-ink-800">
-                        {rowTotal(row) > 0 ? formatHoursLabel(rowTotal(row)) : ""}
-                      </td>
-                      <td className="py-3 px-3 align-top text-center">
+                        })}
+                        <td className="py-3 px-3 text-center align-top text-xs font-bold text-ink-800">
+                          {rowTotal(row) > 0 ? formatHoursLabel(rowTotal(row)) : ""}
+                        </td>
+                        <td className="py-3 px-3 align-top text-center">
+                          <button
+                            type="button"
+                            onClick={() => removeRow(group.id, row.id)}
+                            className="p-1 text-ink-300 hover:text-rose-600 rounded transition-all"
+                            title="Remove row"
+                          >
+                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+
+                    <tr>
+                      <td colSpan={displayDays.length + 3} className="py-2 pl-8 pr-4">
                         <button
                           type="button"
-                          onClick={() => removeRow(row.id)}
-                          className="p-1 text-ink-300 hover:text-rose-600 rounded transition-all"
-                          title="Remove row"
+                          onClick={() => addRow(group.id)}
+                          className="inline-flex items-center gap-1 text-[10px] font-bold text-brand hover:underline"
                         >
                           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                           </svg>
+                          Add another item
                         </button>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
+
+                    <tr className="bg-ink-50/60 border-t border-ink-100">
+                      <td className="py-2 pl-8 pr-4 text-[11px] font-semibold text-ink-500 italic">
+                        Subtotal — {projectName(group.projectId) ?? "no project yet"}
+                      </td>
+                      <td colSpan={displayDays.length}></td>
+                      <td className="py-2 px-3 text-center text-xs font-bold text-ink-800">{formatHoursLabel(groupTotal(group))}</td>
+                      <td></td>
+                    </tr>
+                  </tbody>
+                ))}
+
                 <tfoot className="bg-white">
                   <tr className="border-t border-ink-150 bg-ink-50/50">
                     <td className="py-2.5 px-4">
                       <button
                         type="button"
-                        onClick={addRow}
+                        onClick={addGroup}
                         className="inline-flex items-center gap-1 text-[10px] font-bold text-brand hover:underline"
                       >
                         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                         </svg>
-                        Add Ticket
+                        Add project
                       </button>
                     </td>
-                    <td></td>
-                    <td colSpan={7}></td>
-                    <td className="py-2.5 px-3 text-center text-xs font-black text-ink-900">
-                      {formatHoursLabel(rows.reduce((sum, r) => sum + rowTotal(r), 0))}
-                    </td>
+                    <td colSpan={displayDays.length}></td>
+                    <td colSpan={2}></td>
+                  </tr>
+                  <tr className="border-t border-ink-150 bg-brand/5">
+                    <td className="py-2.5 px-4 text-xs font-black text-ink-900">Day total</td>
+                    {displayDays.map((dDate) => {
+                      const iso = toIsoDate(dDate);
+                      const isWeekday = weekDateIsos.includes(iso);
+                      return (
+                        <td key={iso} className="py-2.5 px-3 text-center text-xs font-black text-ink-900">
+                          {isWeekday ? formatHoursLabel(dayTotal(iso)) : <span className="text-ink-300 font-normal">—</span>}
+                        </td>
+                      );
+                    })}
+                    <td className="py-2.5 px-3 text-center text-xs font-black text-ink-900">{formatHoursLabel(weekGrandTotal)}</td>
                     <td></td>
                   </tr>
                 </tfoot>
@@ -1064,8 +1160,9 @@ export default function TimesheetPage() {
           clipped by the grid's scrollable overflow-x wrapper. */}
       {openCommentCell &&
         (() => {
-          const activeRow = rows.find((r) => r.id === openCommentCell.rowId);
-          if (!activeRow) return null;
+          const activeGroup = groups.find((g) => g.id === openCommentCell.groupId);
+          const activeRow = activeGroup?.rows.find((r) => r.id === openCommentCell.rowId);
+          if (!activeGroup || !activeRow) return null;
           return (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setOpenCommentCell(null)} />
@@ -1078,7 +1175,7 @@ export default function TimesheetPage() {
                   placeholder="Add comment"
                   value={activeRow.comments[openCommentCell.day] || ""}
                   onChange={(e) =>
-                    updateRow(openCommentCell.rowId, {
+                    updateRow(activeGroup.id, openCommentCell.rowId, {
                       comments: { ...activeRow.comments, [openCommentCell.day]: e.target.value }
                     })
                   }
@@ -1130,7 +1227,7 @@ export default function TimesheetPage() {
                                 {entry.jiraIssueKey}
                               </span>
                             ) : (
-                              <span className="text-ink-700 truncate">{entry.taskDescription}</span>
+                              <span className="text-ink-700 truncate">{entry.activityCode || entry.taskDescription}</span>
                             )}
                             {entry.comment && <span className="text-ink-400 italic truncate">"{entry.comment}"</span>}
                           </div>

@@ -187,11 +187,10 @@ public class TimesheetController : ControllerBase
         var currentId = GetCurrentEmployeeId();
         if (currentId == null) return Unauthorized();
 
-        var hasTicket = !string.IsNullOrWhiteSpace(dto.JiraIssueKey);
-        var hasTask = !string.IsNullOrWhiteSpace(dto.TaskDescription);
-        if (hasTicket == hasTask)
+        var shapeError = ValidateEntryShape(dto);
+        if (shapeError != null)
         {
-            return BadRequest(new { message = "Provide either a Jira ticket or a task description, not both." });
+            return BadRequest(new { message = shapeError });
         }
         if (dto.HoursSpent <= 0)
         {
@@ -246,11 +245,10 @@ public class TimesheetController : ControllerBase
         if (entry.Timesheet.Status != "Draft" && entry.Timesheet.Status != "Rejected")
             return BadRequest(new { message = "This week is pending your manager's review and can't be edited until they act on it." });
 
-        var hasTicket = !string.IsNullOrWhiteSpace(dto.JiraIssueKey);
-        var hasTask = !string.IsNullOrWhiteSpace(dto.TaskDescription);
-        if (hasTicket == hasTask)
+        var shapeError = ValidateEntryShape(dto);
+        if (shapeError != null)
         {
-            return BadRequest(new { message = "Provide either a Jira ticket or a task description, not both." });
+            return BadRequest(new { message = shapeError });
         }
         if (dto.HoursSpent <= 0)
         {
@@ -415,6 +413,32 @@ public class TimesheetController : ControllerBase
         }
 
         return timesheet;
+    }
+
+    /// <summary>Every entry is either a Jira ticket or an activity type, never both - and OTH
+    /// additionally needs a free-text description since it has no fixed meaning on its own.
+    /// Project is required on every entry: the same activity type (e.g. DSM) can apply to more
+    /// than one project a person is on, and Project is what tells those apart.</summary>
+    private static string? ValidateEntryShape(CreateTimesheetEntryDto dto)
+    {
+        if (dto.ProjectId == null)
+        {
+            return "Project is required.";
+        }
+
+        var hasTicket = !string.IsNullOrWhiteSpace(dto.JiraIssueKey);
+        var hasType = !string.IsNullOrWhiteSpace(dto.ActivityCode);
+        if (hasTicket == hasType)
+        {
+            return "Pick either a ticket or an activity type, not both.";
+        }
+
+        if (hasType && dto.ActivityCode == "OTH" && string.IsNullOrWhiteSpace(dto.TaskDescription))
+        {
+            return "Describe what \"Other\" means for this entry.";
+        }
+
+        return null;
     }
 
     private static DateTime GetMonday(DateTime date)

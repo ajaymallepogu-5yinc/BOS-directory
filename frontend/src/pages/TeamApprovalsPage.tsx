@@ -285,7 +285,10 @@ export default function TeamApprovalsPage() {
                                     {entry.jiraIssueKey}
                                   </span>
                                 ) : (
-                                  <span className="text-ink-700">{entry.taskDescription}</span>
+                                  <span className="text-ink-700">
+                                    {entry.activityCode}
+                                    {entry.activityCode === "OTH" && entry.taskDescription ? ` — ${entry.taskDescription}` : ""}
+                                  </span>
                                 )}
                                 {entry.comment && <span className="text-[10px] text-ink-400 italic ml-2">"{entry.comment}"</span>}
                               </td>
