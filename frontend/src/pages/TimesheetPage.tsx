@@ -728,9 +728,11 @@ export default function TimesheetPage() {
       setGroups(buildProjectGroups(fresh, weekDateIsos, () => nextLocalId.current++));
       refreshNotifications();
     } catch (err: any) {
+      // Deliberately don't refresh-and-rebuild here like the success path does - a failed save
+      // never reached the server, so rebuilding "from the server" would rebuild from data that
+      // never includes what was just typed, wiping it out for no reason. Leave the grid exactly
+      // as the user left it so they can fix whatever's wrong (or just retry) without re-typing.
       showNotification("error", err.response?.data?.message || "Failed to save some entries. Please check and try again.");
-      const fresh = await refreshEntries();
-      setGroups(buildProjectGroups(fresh, weekDateIsos, () => nextLocalId.current++));
     } finally {
       setIsSavingGrid(false);
     }

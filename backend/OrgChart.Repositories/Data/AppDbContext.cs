@@ -78,6 +78,13 @@ public class AppDbContext : IdentityDbContext<Employee, IdentityRole<int>, int>
 
         modelBuilder.Entity<Timesheet>(entity =>
         {
+            // These columns are physically DATE (see SeedData.cs's raw CREATE TABLE), but EF's
+            // default DateTime->column mapping assumes timestamptz - which Npgsql refuses to
+            // write/compare against Kind=Unspecified values (always what JSON date strings
+            // deserialize to). Pin the actual column type so Kind stops mattering.
+            entity.Property(t => t.StartDate).HasColumnType("date");
+            entity.Property(t => t.EndDate).HasColumnType("date");
+
             // Restrict (not Cascade): Employee already has other cascading paths (e.g.
             // OrgReporting), so a second cascading FK to AspNetUsers triggers SQL Server's
             // "multiple cascade paths" error - same fix already applied to OrgReporting/
@@ -90,6 +97,8 @@ public class AppDbContext : IdentityDbContext<Employee, IdentityRole<int>, int>
 
         modelBuilder.Entity<TimesheetEntry>(entity =>
         {
+            entity.Property(t => t.Date).HasColumnType("date");
+
             entity.HasOne(t => t.Timesheet)
                 .WithMany(t => t.Entries)
                 .HasForeignKey(t => t.TimesheetId)
