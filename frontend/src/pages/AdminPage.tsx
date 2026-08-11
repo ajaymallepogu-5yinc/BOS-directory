@@ -230,6 +230,10 @@ export default function AdminPage() {
 
   async function handleSubmit(values: EmployeeFormValues) {
     setErrorMessage(null);
+    if (values.departmentId == null) {
+      setErrorMessage("Please select a department before saving.");
+      throw new Error("Department is required.");
+    }
     try {
       if (editing) {
         await updateEmployee(editing.id, values);

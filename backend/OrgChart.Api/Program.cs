@@ -167,6 +167,7 @@ using (var scope = app.Services.CreateScope())
     SeedData.EnsureDepartmentAuditColumnsExist(db);
     SeedData.EnsureOrgReportingAuditColumnsExist(db);
     SeedData.EnsureProjectSoftDeleteColumnsExist(db);
+    SeedData.EnsureIdentitySequencesAreSynced(db);
     SeedData.SeedDefaultSettings(db);
 
     var config = db.DataSourceConfigs.FirstOrDefault();
@@ -178,8 +179,28 @@ using (var scope = app.Services.CreateScope())
 
 if (app.Environment.IsDevelopment())
 {
+    app.UseDeveloperExceptionPage();
     app.UseSwagger();
     app.UseSwaggerUI();
+}
+else
+{
+    // Every unhandled exception was reaching the client as a bare 500 with an empty body (or
+    // occasionally the raw .NET exception text) - Kestrel already logs the real exception with
+    // full stack trace to the server console regardless, so this only needs to give callers a
+    // stable, readable body instead of nothing.
+    app.UseExceptionHandler(errorApp =>
+    {
+        errorApp.Run(async context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                message = "Something went wrong on our end. Please try again, and contact an administrator if it keeps happening."
+            });
+        });
+    });
 }
 
 app.UseCors("FrontendPolicy");

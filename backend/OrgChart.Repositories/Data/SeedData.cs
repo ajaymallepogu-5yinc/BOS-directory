@@ -5,6 +5,38 @@ namespace OrgChart.Repositories.Data;
 
 public static class SeedData
 {
+    /// <summary>Postgres generates auto-increment Ids from a sequence that only advances when
+    /// Postgres itself assigns the value. If any row in one of these tables was ever inserted
+    /// with an explicit Id instead (a manual data load, a raw SQL fix, a migration script) - as
+    /// happened with the initial AspNetUsers data - the sequence never catches up, and the next
+    /// normal EF-generated insert can collide with an Id that's already taken ("duplicate key
+    /// value violates unique constraint"). Fast-forwarding every affected table's sequence to
+    /// MAX(Id)+1 on every boot is idempotent and cheap, and closes this off everywhere at once
+    /// instead of one table at a time as each one happens to get hit.</summary>
+    public static void EnsureIdentitySequencesAreSynced(AppDbContext db)
+    {
+        if (db.Database.ProviderName != "Npgsql.EntityFrameworkCore.PostgreSQL") return;
+
+        var tables = new[]
+        {
+            "AspNetUsers", "AspNetRoles", "Departments", "DataSourceConfigs",
+            "OrgReportings", "Projects", "Timesheets", "TimesheetEntries", "TimesheetReviewLogs"
+        };
+
+        foreach (var table in tables)
+        {
+            // Table names come from the fixed array above, never from user input - safe to
+            // interpolate directly (identifiers can't be passed as SQL parameters anyway).
+#pragma warning disable EF1002
+            db.Database.ExecuteSqlRaw($@"
+                SELECT setval(
+                    pg_get_serial_sequence('""{table}""', 'Id'),
+                    COALESCE((SELECT MAX(""Id"") FROM ""{table}""), 0) + 1,
+                    false);");
+#pragma warning restore EF1002
+        }
+    }
+
     /// <summary>
     /// No default seed data. Employees, departments, and reporting lines
     /// will be loaded via the Admin panel or CSV import in production.
