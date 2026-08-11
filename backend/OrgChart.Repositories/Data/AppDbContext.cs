@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using OrgChart.Domain;
 
 namespace OrgChart.Repositories.Data;
@@ -8,6 +9,35 @@ namespace OrgChart.Repositories.Data;
 public class AppDbContext : IdentityDbContext<Employee, IdentityRole<int>, int>
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+    /// <summary>Postgres 'timestamp with time zone' columns reject DateTime.Kind=Unspecified.
+    /// Some existing rows predate that being enforced consistently (e.g. Identity records written
+    /// before this app went all-in on DateTime.UtcNow), and ASP.NET Identity's UserManager
+    /// re-writes every column on save (not just the ones that changed) - so a single stale
+    /// Unspecified-kind DateTime anywhere on Employee can 500 an otherwise-unrelated update, like
+    /// toggling the Admin role. Forcing Utc on every DateTime this app reads or writes, in the one
+    /// place all EF access funnels through, closes this off everywhere instead of one column at a time.</summary>
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        configurationBuilder.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
+        configurationBuilder.Properties<DateTime?>().HaveConversion<UtcNullableDateTimeConverter>();
+    }
+
+    private class UtcDateTimeConverter : ValueConverter<DateTime, DateTime>
+    {
+        public UtcDateTimeConverter() : base(
+            v => DateTime.SpecifyKind(v, DateTimeKind.Utc),
+            v => DateTime.SpecifyKind(v, DateTimeKind.Utc))
+        { }
+    }
+
+    private class UtcNullableDateTimeConverter : ValueConverter<DateTime?, DateTime?>
+    {
+        public UtcNullableDateTimeConverter() : base(
+            v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v,
+            v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v)
+        { }
+    }
 
     public DbSet<Employee> Employees => Set<Employee>();
     public DbSet<Department> Departments => Set<Department>();
