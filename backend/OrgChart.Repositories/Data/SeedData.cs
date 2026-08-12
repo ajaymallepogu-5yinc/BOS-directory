@@ -338,6 +338,42 @@ public static class SeedData
         }
     }
 
+    /// <summary>Renames Projects.JiraBoardId to JiraBoardIds - sync now fetches Jira projects
+    /// (spaces) rather than boards, and a space can have more than one board, so the column holds
+    /// a comma-separated list instead of a single id. Backfills the old value before dropping it.</summary>
+    public static void EnsureJiraBoardIdsColumnRenamed(AppDbContext db)
+    {
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Projects"" ADD COLUMN IF NOT EXISTS ""JiraBoardIds"" TEXT NULL;");
+            db.Database.ExecuteSqlRaw(@"
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'Projects' AND column_name = 'JiraBoardId') THEN
+                        UPDATE ""Projects"" SET ""JiraBoardIds"" = ""JiraBoardId"" WHERE ""JiraBoardIds"" IS NULL AND ""JiraBoardId"" IS NOT NULL;
+                        ALTER TABLE ""Projects"" DROP COLUMN ""JiraBoardId"";
+                    END IF;
+                END $$;");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Projects]') AND name = 'JiraBoardIds')
+                BEGIN
+                    ALTER TABLE [Projects] ADD [JiraBoardIds] nvarchar(max) NULL;
+                END");
+            db.Database.ExecuteSqlRaw(@"
+                IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Projects]') AND name = 'JiraBoardId')
+                BEGIN
+                    -- EXEC(...) defers parsing of these statements until the IF has already
+                    -- been evaluated - a plain UPDATE/ALTER referencing [JiraBoardId] here would
+                    -- fail to compile once that column is gone, even though this branch never runs.
+                    EXEC('UPDATE [Projects] SET [JiraBoardIds] = [JiraBoardId] WHERE [JiraBoardIds] IS NULL AND [JiraBoardId] IS NOT NULL');
+                    EXEC('ALTER TABLE [Projects] DROP COLUMN [JiraBoardId]');
+                END");
+        }
+    }
+
     /// <summary>Drops the now-removed Projects.FunctionalManagerId column - Functional Manager
     /// moved to the employee level (OrgReporting.ReportingType == "Functional") instead.</summary>
     public static void EnsureFunctionalManagerColumnDropped(AppDbContext db)
@@ -1083,7 +1119,7 @@ public static class SeedData
                 ""Name"" TEXT NOT NULL,
                 ""ProjectManagerId"" INT NULL,
                 ""IsBillable"" BOOLEAN NOT NULL,
-                ""JiraBoardId"" TEXT NULL,
+                ""JiraBoardIds"" TEXT NULL,
                 ""CreatedAt"" TIMESTAMP NOT NULL,
                 ""CreatedBy"" TEXT NULL,
                 ""UpdatedAt"" TIMESTAMP NULL,

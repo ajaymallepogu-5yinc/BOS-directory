@@ -10,7 +10,11 @@ public class Project
     public Employee? ProjectManager { get; set; }
 
     public bool IsBillable { get; set; }
-    public string? JiraBoardId { get; set; }
+
+    /// <summary>Comma-separated Jira board ids for this project's space - a space can have more
+    /// than one board (e.g. separate Scrum + Kanban boards), so ticket search unions issues across
+    /// all of them instead of picking just one.</summary>
+    public string? JiraBoardIds { get; set; }
     public string? JiraProjectKey { get; set; }
 
     // Audit fields

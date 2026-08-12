@@ -6,7 +6,7 @@ export interface Project {
   projectManagerId?: number | null;
   projectManagerName?: string | null;
   isBillable: boolean;
-  jiraBoardId?: string | null;
+  jiraBoardIds?: string | null;
   jiraProjectKey?: string | null;
   createdAt: string;
   createdBy?: string | null;
@@ -16,7 +16,7 @@ export interface ProjectFormValues {
   name: string;
   projectManagerId: number | null;
   isBillable: boolean;
-  jiraBoardId?: string;
+  jiraBoardIds?: string;
 }
 
 export interface SyncJiraResult {

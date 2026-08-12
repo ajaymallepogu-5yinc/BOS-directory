@@ -49,7 +49,7 @@ public class ProjectsController : ControllerBase
             ProjectManagerId = p.ProjectManagerId,
             ProjectManagerName = p.ProjectManager?.FullName,
             IsBillable = p.IsBillable,
-            JiraBoardId = p.JiraBoardId,
+            JiraBoardIds = p.JiraBoardIds,
             JiraProjectKey = p.JiraProjectKey,
             CreatedAt = p.CreatedAt,
             CreatedBy = p.CreatedBy
@@ -69,7 +69,7 @@ public class ProjectsController : ControllerBase
             Name = dto.Name,
             ProjectManagerId = dto.ProjectManagerId,
             IsBillable = dto.IsBillable,
-            JiraBoardId = dto.JiraBoardId,
+            JiraBoardIds = dto.JiraBoardIds,
             CreatedAt = DateTime.UtcNow,
             CreatedBy = username
         };
@@ -90,7 +90,7 @@ public class ProjectsController : ControllerBase
             ProjectManagerId = project.ProjectManagerId,
             ProjectManagerName = project.ProjectManager?.FullName,
             IsBillable = project.IsBillable,
-            JiraBoardId = project.JiraBoardId,
+            JiraBoardIds = project.JiraBoardIds,
             CreatedAt = project.CreatedAt,
             CreatedBy = project.CreatedBy
         });
@@ -108,7 +108,7 @@ public class ProjectsController : ControllerBase
         project.Name = dto.Name;
         project.ProjectManagerId = dto.ProjectManagerId;
         project.IsBillable = dto.IsBillable;
-        project.JiraBoardId = dto.JiraBoardId;
+        project.JiraBoardIds = dto.JiraBoardIds;
         project.UpdatedAt = DateTime.UtcNow;
         project.UpdatedBy = username;
 
@@ -146,7 +146,8 @@ public class ProjectsController : ControllerBase
             return StatusCode(500, new { success = false, message = "Jira integration is not configured on the server. Contact an administrator." });
         }
 
-        List<JiraBoard> boards;
+        List<JiraSpace> spaces;
+        Dictionary<string, List<string>> boardIdsByProjectKey;
         string? cloudId;
         try
         {
@@ -159,6 +160,12 @@ public class ProjectsController : ControllerBase
                 return StatusCode(502, new { success = false, message = "Could not resolve the Jira site's Cloud ID. Verify the configured Jira URL." });
             }
 
+            // Deliberately NOT /rest/api/3/project/search - confirmed the same class of platform
+            // bug as JRACLOUD-96181 (see TimesheetController): that platform REST v3 endpoint
+            // rejects scoped API tokens outright regardless of granted scopes, while the Agile
+            // API's board listing works fine with the exact same token. Every board's own
+            // `location` carries its parent project's key/name, so one board listing call derives
+            // the full distinct-projects list (and each project's board ids) without a second call.
             var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.atlassian.com/ex/jira/{cloudId}/rest/agile/1.0/board?maxResults=100");
             var authBytes = Encoding.UTF8.GetBytes($"{jiraEmail}:{jiraApiToken}");
             request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));
@@ -172,40 +179,41 @@ public class ProjectsController : ControllerBase
                 return StatusCode(502, new { success = false, message = $"Jira request failed (HTTP {(int)response.StatusCode}). Verify the configured Jira URL and credentials, and that the account has been granted access to a project." });
             }
 
-            boards = new List<JiraBoard>();
+            var spacesByKey = new Dictionary<string, JiraSpace>();
+            boardIdsByProjectKey = new Dictionary<string, List<string>>();
+
             var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             if (doc.RootElement.TryGetProperty("values", out var values))
             {
                 foreach (var board in values.EnumerateArray())
                 {
-                    var id = board.GetProperty("id").GetRawText();
+                    if (!board.TryGetProperty("location", out var location)) continue;
 
-                    // Prefer the Space name (location.projectName) over the board's own
-                    // auto-generated name (e.g. "TB309 board") - falls back to the board
-                    // name if a board has no single Space, e.g. a cross-project filter board.
-                    string? name = null;
-                    string? projectKey = null;
-                    if (board.TryGetProperty("location", out var location))
-                    {
-                        if (location.TryGetProperty("projectName", out var projectName))
-                        {
-                            name = projectName.GetString();
-                        }
-                        if (location.TryGetProperty("projectKey", out var projectKeyProp))
-                        {
-                            projectKey = projectKeyProp.GetString();
-                        }
-                    }
-                    if (string.IsNullOrWhiteSpace(name))
-                    {
-                        name = board.TryGetProperty("name", out var n) ? n.GetString() : null;
-                    }
-                    name = string.IsNullOrWhiteSpace(name) ? $"Board {id}" : name;
+                    // A board with no project key (rare - e.g. a cross-project filter board) can't
+                    // be attributed to a single space, so it's skipped rather than guessed at.
+                    var projectKey = location.TryGetProperty("projectKey", out var pk) ? pk.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(projectKey)) continue;
 
-                    boards.Add(new JiraBoard(id, name, projectKey));
+                    if (!spacesByKey.ContainsKey(projectKey))
+                    {
+                        var projectName = location.TryGetProperty("projectName", out var pn) ? pn.GetString() : null;
+                        spacesByKey[projectKey] = new JiraSpace(projectKey, string.IsNullOrWhiteSpace(projectName) ? projectKey : projectName!);
+                    }
+
+                    var boardId = board.TryGetProperty("id", out var idProp) ? idProp.GetRawText() : null;
+                    if (string.IsNullOrWhiteSpace(boardId)) continue;
+
+                    if (!boardIdsByProjectKey.TryGetValue(projectKey, out var ids))
+                    {
+                        ids = new List<string>();
+                        boardIdsByProjectKey[projectKey] = ids;
+                    }
+                    ids.Add(boardId);
                 }
             }
+
+            spaces = spacesByKey.Values.ToList();
         }
         catch (Exception)
         {
@@ -214,32 +222,36 @@ public class ProjectsController : ControllerBase
         }
 
         var syncedCount = 0;
-        foreach (var board in boards)
+        foreach (var space in spaces)
         {
-            var existing = await _db.Projects.FirstOrDefaultAsync(p => p.JiraBoardId == board.Id);
+            var existing = await _db.Projects.FirstOrDefaultAsync(p => p.JiraProjectKey == space.Key);
+
+            // A space's board lineup can change (board added/removed) - re-derive on every sync,
+            // for both new and already-synced projects, unlike name/manager which are set once.
+            var boardIds = boardIdsByProjectKey.TryGetValue(space.Key, out var boardIdList) ? string.Join(",", boardIdList) : null;
+
             if (existing == null)
             {
                 // Ask Jira who actually leads this project, rather than defaulting every synced
                 // project to one hardcoded person - only set on first insert, never overwritten
                 // on later syncs, so it doesn't fight with a manual edit made afterward.
-                var managerId = await ResolveProjectManagerIdAsync(cloudId, board.ProjectKey, jiraEmail, jiraApiToken);
+                var managerId = await ResolveProjectManagerIdAsync(cloudId, space.Key, jiraEmail, jiraApiToken);
 
                 _db.Projects.Add(new Project
                 {
-                    Name = board.Name,
+                    Name = space.Name,
                     ProjectManagerId = managerId,
                     IsBillable = true,
-                    JiraBoardId = board.Id,
-                    JiraProjectKey = board.ProjectKey,
+                    JiraBoardIds = boardIds,
+                    JiraProjectKey = space.Key,
                     CreatedAt = DateTime.UtcNow,
                     CreatedBy = username
                 });
                 syncedCount++;
             }
-            else if (string.IsNullOrWhiteSpace(existing.JiraProjectKey) && !string.IsNullOrWhiteSpace(board.ProjectKey))
+            else if (existing.JiraBoardIds != boardIds)
             {
-                // Backfill the project key for boards synced before this field existed.
-                existing.JiraProjectKey = board.ProjectKey;
+                existing.JiraBoardIds = boardIds;
             }
         }
 
@@ -252,8 +264,8 @@ public class ProjectsController : ControllerBase
         {
             success = true,
             message = syncedCount > 0
-                ? $"Successfully synced {syncedCount} new project board(s) from Jira!"
-                : "No new Jira boards found. Database is already up to date.",
+                ? $"Successfully synced {syncedCount} new project(s) from Jira!"
+                : "No new Jira projects found. Database is already up to date.",
             syncedCount
         });
     }
@@ -309,5 +321,5 @@ public class ProjectsController : ControllerBase
     }
 
 
-    private record JiraBoard(string Id, string Name, string? ProjectKey);
+    private record JiraSpace(string Key, string Name);
 }

@@ -96,7 +96,7 @@ export default function ProjectsPage() {
     setFormName(project.name);
     setFormManagerId(project.projectManagerId || null);
     setFormIsBillable(project.isBillable);
-    setFormJiraId(project.jiraBoardId || "");
+    setFormJiraId(project.jiraBoardIds || "");
     setIsModalOpen(true);
   };
 
@@ -113,7 +113,7 @@ export default function ProjectsPage() {
         name: formName.trim(),
         projectManagerId: formManagerId,
         isBillable: formIsBillable,
-        jiraBoardId: formJiraId.trim() || undefined
+        jiraBoardIds: formJiraId.trim() || undefined
       };
 
       if (editingProject) {
@@ -186,7 +186,7 @@ export default function ProjectsPage() {
     return (
       p.name.toLowerCase().includes(term) ||
       (p.projectManagerName && p.projectManagerName.toLowerCase().includes(term)) ||
-      (p.jiraBoardId && p.jiraBoardId.toLowerCase().includes(term))
+      (p.jiraBoardIds && p.jiraBoardIds.toLowerCase().includes(term))
     );
   });
 
@@ -290,7 +290,7 @@ export default function ProjectsPage() {
                   <th className="py-3 px-6">Project Name</th>
                   <th className="py-3 px-6">Project Manager</th>
                   <th className="py-3 px-6">Billing Type</th>
-                  <th className="py-3 px-6">Jira Board</th>
+                  <th className="py-3 px-6">Jira Board(s)</th>
                   <th className="py-3 px-6">Created On</th>
                   {isAdmin && <th className="py-3 px-6 text-right">Actions</th>}
                 </tr>
@@ -327,12 +327,12 @@ export default function ProjectsPage() {
                       )}
                     </td>
                     <td className="py-4.5 px-6">
-                      {project.jiraBoardId ? (
+                      {project.jiraBoardIds ? (
                         <div className="inline-flex items-center gap-1.5 rounded-lg bg-sky-50/50 border border-sky-100/70 text-sky-800 font-mono text-[10px] px-2 py-1.5 shrink-0">
                           <svg className="h-3.5 w-3.5 shrink-0 text-sky-500" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V1.001A1.001 1.001 0 0 0 23.013 0z" />
                           </svg>
-                          {project.jiraBoardId}
+                          {project.jiraBoardIds}
                         </div>
                       ) : (
                         <span className="text-ink-400 italic">None</span>

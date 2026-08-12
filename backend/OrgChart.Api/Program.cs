@@ -93,12 +93,11 @@ builder.Services.ConfigureApplicationCookie(options =>
 {
     options.Cookie.HttpOnly = true;
     options.Cookie.Name = "OrgChart.Identity";
-    options.Cookie.SameSite = builder.Environment.IsDevelopment()
-        ? SameSiteMode.Lax
-        : SameSiteMode.None;
-    options.Cookie.SecurePolicy = builder.Environment.IsDevelopment() 
-        ? CookieSecurePolicy.SameAsRequest 
-        : CookieSecurePolicy.Always;
+    // Frontend (http://localhost:5173) and backend (https://localhost:44357 via IIS Express) are
+    // different schemes even in dev, which Chrome's schemeful-same-site treats as cross-site -
+    // SameSite=None/Secure=Always is required in both dev and prod, not just prod.
+    options.Cookie.SameSite = SameSiteMode.None;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
 
     // Keep the session alive for 7 days (isPersistent:true in SignInAsync activates this)
     options.ExpireTimeSpan = TimeSpan.FromDays(7);
@@ -159,6 +158,7 @@ using (var scope = app.Services.CreateScope())
     SeedData.ApplySafeMigrations(db);
     SeedData.EnsureCardColorColumnExists(db);
     SeedData.EnsureJiraIdentityColumnsExist(db);
+    SeedData.EnsureJiraBoardIdsColumnRenamed(db);
     SeedData.EnsureFunctionalManagerColumnDropped(db);
     SeedData.EnsureTimesheetTablesExist(db);
     SeedData.EnsureTimesheetEntriesMinutesColumnExists(db);
