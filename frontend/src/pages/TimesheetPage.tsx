@@ -182,15 +182,7 @@ const ACTIVITY_CODES: { code: string; type: string; explanation: string }[] = [
   { code: "SAM", type: "Sales & Marketing", explanation: "Tasks related to Sales and Marketing" }
 ];
 
-// "CODE — Full Name" so the list is self-explanatory without opening the separate "?" legend -
-// PRA/PRC have no "type" in the data, so they fall back to the shorter explanation text instead.
-const ACTIVITY_TYPE_OPTIONS: DropdownOption[] = ACTIVITY_CODES.map((a) => ({
-  value: `${TYPE_PREFIX}${a.code}`,
-  label: `${a.code} — ${a.type || a.explanation}`,
-  // Only worth attaching when there's a real "type" name distinct from the explanation shown in
-  // the label already - PRA/PRC would otherwise repeat the exact same text twice in the flyout.
-  detail: a.type ? a.explanation : undefined
-}));
+const ACTIVITY_TYPE_OPTIONS: DropdownOption[] = ACTIVITY_CODES.map((a) => ({ value: `${TYPE_PREFIX}${a.code}`, label: a.code }));
 
 // row.hours[d] keeps storing decimal hours (e.g. "2.25") - only the on-screen
 // representation is H:MM, so rowTotal/handleSaveGrid/buildProjectGroups stay untouched.
@@ -225,9 +217,6 @@ function hoursInputToDecimalHours(text: string): number {
 interface DropdownOption {
   value: string;
   label: string;
-  // Shown in the hover flyout underneath the label, for whichever row got truncated - optional
-  // since most options (projects, tickets) don't need anything beyond the label itself.
-  detail?: string;
 }
 
 function Dropdown({
@@ -254,9 +243,6 @@ function Dropdown({
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number; width: number; maxHeight: number } | null>(null);
-  // Set only when a row's label actually got cut off (scrollWidth > clientWidth) - short labels
-  // never trigger this, so there's nothing extra to see by hovering them.
-  const [truncatedHover, setTruncatedHover] = useState<{ label: string; detail?: string; top: number; left: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const selected = options.find((o) => o.value === value);
   const filtered = searchable && query.trim() ? options.filter((o) => o.label.toLowerCase().includes(query.trim().toLowerCase())) : options;
@@ -275,11 +261,7 @@ function Dropdown({
         top: openUpward ? undefined : rect.bottom + 4,
         bottom: openUpward ? window.innerHeight - rect.top + 4 : undefined,
         left: rect.left,
-        // Deliberately NOT rect.width - a wide trigger button (e.g. the "What" column's picker,
-        // matching its w-72 table column) would otherwise set a floor roomy enough that no label
-        // ever needs to truncate, no matter how tightly the panel is capped. A fixed range,
-        // independent of the button, is what actually forces long labels to truncate.
-        width: Math.min(Math.max(rect.width, 200), 260),
+        width: rect.width,
         maxHeight: Math.max(120, available)
       });
     }
@@ -315,16 +297,11 @@ function Dropdown({
             onClick={() => {
               setIsOpen(false);
               setQuery("");
-              setTruncatedHover(null);
             }}
           />
           <div
-            className="fixed z-50 rounded-xl border border-ink-150 bg-white shadow-lg animate-fade-in flex flex-col"
-            // A fixed width, not min/max - a long label (e.g. an activity's full name) truncates
-            // with "…" instead of stretching the list open-endedly; hovering that row is what
-            // shows the rest. (min-width + max-width would let a wide trigger button's rendered
-            // width win as the floor, defeating the cap entirely - see toggleOpen above.)
-            style={{ top: pos.top, bottom: pos.bottom, left: pos.left, width: pos.width, maxHeight: pos.maxHeight }}
+            className="fixed z-50 rounded-xl border border-ink-150 bg-white shadow-lg animate-fade-in min-w-max flex flex-col"
+            style={{ top: pos.top, bottom: pos.bottom, left: pos.left, minWidth: pos.width, maxHeight: pos.maxHeight }}
           >
             {searchable && (
               <div className="p-1.5 border-b border-ink-100 shrink-0">
@@ -339,10 +316,7 @@ function Dropdown({
                 />
               </div>
             )}
-            {/* min-w-0 is load-bearing: this is a flex item of the panel's flex-col, and flex
-                items default to min-width:auto, which lets them grow to fit content and silently
-                defeats child truncate/ellipsis no matter what width the panel itself is capped at. */}
-            <div className="min-w-0 overflow-y-auto scrollbar-none py-1 divide-y divide-ink-50">
+            <div className="overflow-y-auto scrollbar-none py-1 divide-y divide-ink-50">
               {clearable && (
                 <div
                   onClick={() => {
@@ -367,17 +341,8 @@ function Dropdown({
                       onChange(opt.value);
                       setIsOpen(false);
                       setQuery("");
-                      setTruncatedHover(null);
                     }}
-                    onMouseEnter={(e) => {
-                      const el = e.currentTarget;
-                      if (el.scrollWidth > el.clientWidth) {
-                        const rect = el.getBoundingClientRect();
-                        setTruncatedHover({ label: opt.label, detail: opt.detail, top: rect.top, left: rect.right + 8 });
-                      }
-                    }}
-                    onMouseLeave={() => setTruncatedHover(null)}
-                    className={`px-3 py-2 text-xs cursor-pointer hover:bg-brand/10 transition-colors truncate ${
+                    className={`px-3 py-2 text-xs cursor-pointer hover:bg-brand/10 transition-colors whitespace-nowrap ${
                       value === opt.value ? "bg-brand/5 font-semibold text-brand" : "text-ink-700"
                     }`}
                   >
@@ -402,15 +367,6 @@ function Dropdown({
               </div>
             )}
           </div>
-          {truncatedHover && (
-            <div
-              className="fixed z-[60] max-w-[240px] rounded-lg border border-ink-150 bg-white shadow-lg px-3 py-2 animate-fade-in pointer-events-none"
-              style={{ top: truncatedHover.top, left: truncatedHover.left }}
-            >
-              <p className="text-xs font-bold text-ink-800">{truncatedHover.label}</p>
-              {truncatedHover.detail && <p className="text-[10px] font-normal text-ink-500 mt-0.5">{truncatedHover.detail}</p>}
-            </div>
-          )}
         </>
       )}
     </div>
@@ -486,12 +442,6 @@ export default function TimesheetPage() {
   // Raw text buffer for whichever hours cell is actively being typed into (see parseHoursInput) -
   // only exists once the user presses a key; row.hours (decimal) is committed on blur/wheel.
   const [editingCell, setEditingCell] = useState<{ groupId: number; rowId: number; day: string; text: string } | null>(null);
-
-  // Copy-this-day's-time popover, opened from the small icon that appears on any filled cell.
-  // sourceDay is fixed for the popover's lifetime; which days count as valid targets is derived
-  // live from that row's current hours every render, so a day filled while the popover is open
-  // (via "copy to selected days") drops out of the target list on its own.
-  const [copyDayPopover, setCopyDayPopover] = useState<{ groupId: number; rowId: number; sourceDay: string; top: number; left: number } | null>(null);
 
   // Row-removal confirm state (only asked when the row has saved entries behind it)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -699,36 +649,6 @@ export default function TimesheetPage() {
           : { ...g, rows: g.rows.map((r) => (r.id !== rowId ? r : { ...r, hours: { ...r.hours, [dateIso]: value } })) }
       )
     );
-
-  // Days a row genuinely has nothing logged on - the only valid targets for copying a value onto.
-  // A day that already has something (the source day included) never shows up here, so it's never
-  // silently overwritten - matches how "Copy from another week" treats already-filled days too.
-  const emptyDaysFor = (row: GridRow) => weekDateIsos.filter((d) => !((parseFloat(row.hours[d]) || 0) > 0));
-
-  const copyDayToTarget = (groupId: number, rowId: number, sourceDay: string, targetDay: string) => {
-    const row = groups.find((g) => g.id === groupId)?.rows.find((r) => r.id === rowId);
-    if (row) updateHour(groupId, rowId, targetDay, row.hours[sourceDay]);
-  };
-
-  const copyDayToAllEmpty = (groupId: number, rowId: number, sourceDay: string) => {
-    const row = groups.find((g) => g.id === groupId)?.rows.find((r) => r.id === rowId);
-    if (!row) return;
-    const value = row.hours[sourceDay];
-    const targets = emptyDaysFor(row);
-    setGroups((prev) =>
-      prev.map((g) =>
-        g.id !== groupId
-          ? g
-          : {
-              ...g,
-              rows: g.rows.map((r) =>
-                r.id !== rowId ? r : { ...r, hours: { ...r.hours, ...Object.fromEntries(targets.map((d) => [d, value])) } }
-              )
-            }
-      )
-    );
-    setCopyDayPopover(null);
-  };
 
   // Changing a group's project invalidates any ticket already picked in it (a ticket belongs to
   // one specific project) - type-only rows (DSM, OTH, ...) aren't project-specific, so they stay.
@@ -1157,17 +1077,6 @@ export default function TimesheetPage() {
               >
                 Today
               </button>
-              <button
-                onClick={() => {
-                  setCopySourceIso("");
-                  setCopyModalOpen(true);
-                }}
-                disabled={weekLocked}
-                title={weekLocked ? "This week can't be edited right now" : undefined}
-                className="ml-2 py-1.5 px-3 rounded-lg border border-brand text-brand bg-white hover:bg-brand/5 transition-all text-[10px] font-bold disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white"
-              >
-                ↺ Copy from another week
-              </button>
             </div>
 
             {/* Makes "yes, this was actually submitted" (or "this got rejected") obvious at a glance -
@@ -1301,10 +1210,9 @@ export default function TimesheetPage() {
                           // live-converting it - the H:MM conversion only appears once committed on blur.
                           const cellDisplayValue = isEditingCell ? editingCell!.text : hoursToTimeLabel(row.hours[d]);
                           const cellTitle = row.comments[d] ? `Comment: ${row.comments[d]}` : undefined;
-                          const hasHours = (parseFloat(row.hours[d]) || 0) > 0;
                           return (
                             <td key={d} className="py-3 px-2 align-top text-center relative">
-                              <div className="relative inline-block group">
+                              <div className="relative inline-block">
                                 <input
                                   type="text"
                                   inputMode="numeric"
@@ -1360,7 +1268,7 @@ export default function TimesheetPage() {
                                     updateHour(group.id, row.id, d, next > 0 ? String(next) : "");
                                     setEditingCell(null);
                                   }}
-                                  className={`w-14 rounded-lg border px-1.5 py-2.5 text-[11px] text-center text-ink-800 focus:outline-none disabled:opacity-70 disabled:cursor-not-allowed disabled:bg-ink-50 ${
+                                  className={`w-14 rounded-lg border px-1.5 py-1.5 text-[11px] text-center text-ink-800 focus:outline-none disabled:opacity-70 disabled:cursor-not-allowed disabled:bg-ink-50 ${
                                     isPopupOpen ? "border-brand" : "border-ink-200 focus:border-brand"
                                   }`}
                                 />
@@ -1378,23 +1286,6 @@ export default function TimesheetPage() {
                                       d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
                                     />
                                   </svg>
-                                )}
-                                {/* Copy-this-day icon - sits on the boundary between this cell and the
-                                    next, not the cell's own corner (that's the comment badge's spot).
-                                    Faint until hovered, since it's a momentary action, not a status. */}
-                                {hasHours && !weekLocked && !isEditingCell && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const rect = e.currentTarget.getBoundingClientRect();
-                                      setCopyDayPopover({ groupId: group.id, rowId: row.id, sourceDay: d, top: rect.bottom + 6, left: rect.left });
-                                    }}
-                                    title="Copy this time to other days"
-                                    className="absolute top-1/2 left-full ml-2 -translate-y-1/2 z-10 h-4 w-4 rounded-full bg-brand text-white text-[9px] font-bold flex items-center justify-center opacity-30 group-hover:opacity-100 hover:!opacity-100 transition-opacity shadow-sm"
-                                  >
-                                    ⇉
-                                  </button>
                                 )}
                               </div>
                             </td>
@@ -1480,6 +1371,17 @@ export default function TimesheetPage() {
             </div>
 
             <div className="flex items-center justify-end gap-3 mt-3 mb-6">
+              <button
+                onClick={() => {
+                  setCopySourceIso("");
+                  setCopyModalOpen(true);
+                }}
+                disabled={weekLocked}
+                title={weekLocked ? "This week can't be edited right now" : undefined}
+                className="py-2 px-4 rounded-xl border border-dashed border-ink-300 bg-white text-xs font-semibold text-ink-600 hover:bg-ink-50 hover:border-brand/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed mr-auto"
+              >
+                ↺ Copy from another week
+              </button>
               {weekDrafts.length > 0 && (
                 <span className="text-xs text-ink-500">
                   <span className="font-black text-ink-900">{formatHoursLabel(weekDraftTotal)}</span> drafted, not yet submitted
@@ -1567,54 +1469,6 @@ export default function TimesheetPage() {
           );
         })()}
 
-      {/* Copy-this-day popover - rendered at the top level for the same clipping reason as the
-          comment popup above. Target days are derived live from the row's current hours, so a day
-          filled via "copy to selected days" drops out of the list on its own without extra state. */}
-      {copyDayPopover &&
-        (() => {
-          const activeGroup = groups.find((g) => g.id === copyDayPopover.groupId);
-          const activeRow = activeGroup?.rows.find((r) => r.id === copyDayPopover.rowId);
-          if (!activeGroup || !activeRow) return null;
-          const targets = emptyDaysFor(activeRow);
-          return (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setCopyDayPopover(null)} />
-              <div
-                className="fixed z-50 w-60 rounded-xl border border-ink-150 bg-white shadow-lg p-3 animate-fade-in flex flex-col gap-2.5"
-                style={{ top: copyDayPopover.top, left: copyDayPopover.left }}
-              >
-                <button
-                  type="button"
-                  onClick={() => copyDayToAllEmpty(copyDayPopover.groupId, copyDayPopover.rowId, copyDayPopover.sourceDay)}
-                  disabled={targets.length === 0}
-                  className="text-left text-xs font-bold text-brand hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline disabled:text-ink-400"
-                >
-                  Copy to all days
-                </button>
-                {targets.length > 0 ? (
-                  <div>
-                    <p className="text-[10px] font-bold text-ink-500 uppercase tracking-wide mb-1.5">Or copy to selected days</p>
-                    <div className="flex gap-1.5 flex-wrap">
-                      {targets.map((d) => (
-                        <button
-                          key={d}
-                          type="button"
-                          onClick={() => copyDayToTarget(copyDayPopover.groupId, copyDayPopover.rowId, copyDayPopover.sourceDay, d)}
-                          className="px-2 py-1 rounded-lg border border-ink-200 text-[10px] font-bold text-ink-600 hover:border-brand hover:text-brand transition-colors"
-                        >
-                          {new Date(d + "T00:00:00").toLocaleDateString("en-US", { weekday: "short" })}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-[10px] text-ink-400 italic">Every day already has a value.</p>
-                )}
-              </div>
-            </>
-          );
-        })()}
-
       {/* Submit Weekly Timesheet confirmation modal */}
       {submitWeekConfirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-900/40 backdrop-blur-sm animate-fade-in">
@@ -1625,9 +1479,9 @@ export default function TimesheetPage() {
               </h2>
               <button
                 onClick={() => setSubmitWeekConfirmOpen(false)}
-                className="text-ink-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors"
+                className="text-ink-400 hover:text-ink-600 p-1 rounded-lg hover:bg-ink-100"
               >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -1688,21 +1542,15 @@ export default function TimesheetPage() {
 
       {/* Copy From Another Week modal */}
       {copyModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-900/40 backdrop-blur-sm animate-fade-in"
-          onClick={() => setCopyModalOpen(false)}
-        >
-          <div
-            className="w-full max-w-2xl rounded-2xl border border-ink-150 bg-white p-6 shadow-xl animate-slide-up max-h-[85vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-900/40 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-2xl rounded-2xl border border-ink-150 bg-white p-6 shadow-xl animate-slide-up max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-ink-150 pb-4 mb-4 shrink-0">
               <h2 className="text-sm font-black text-ink-900">Copy from another week</h2>
               <button
                 onClick={() => setCopyModalOpen(false)}
-                className="text-ink-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors"
+                className="text-ink-400 hover:text-ink-600 p-1 rounded-lg hover:bg-ink-100"
               >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -1729,14 +1577,7 @@ export default function TimesheetPage() {
               )}
 
               {copySourceIso && allSourceEntries.length > 0 && (
-                <div className="flex flex-col gap-2">
-                  <p className="text-[11px] text-ink-500 leading-relaxed">
-                    Click any <span className="font-semibold text-ink-700">day</span> to toggle just that day, the{" "}
-                    <span className="font-semibold text-ink-700">checkbox on a row</span> to toggle its whole week at once, or the{" "}
-                    <span className="font-semibold text-ink-700">checkbox in the header</span> to select or clear everything below. A day with no
-                    logged hours shows as a plain dash and can't be selected.
-                  </p>
-                  <div className="rounded-xl border border-ink-150 overflow-hidden">
+                <div className="rounded-xl border border-ink-150 overflow-hidden">
                   <div
                     className="grid items-center gap-2 px-3 py-2 bg-ink-50 border-b border-ink-150 text-[9px] font-bold uppercase tracking-wide text-ink-500"
                     style={{ gridTemplateColumns: "20px 1fr repeat(5, 44px) 52px" }}
@@ -1792,7 +1633,6 @@ export default function TimesheetPage() {
                         </div>
                       );
                     })}
-                  </div>
                   </div>
                 </div>
               )}

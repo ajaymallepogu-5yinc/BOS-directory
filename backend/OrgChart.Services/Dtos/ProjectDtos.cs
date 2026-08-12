@@ -10,7 +10,7 @@ public class ProjectDto
     public int? ProjectManagerId { get; set; }
     public string? ProjectManagerName { get; set; }
     public bool IsBillable { get; set; }
-    public string? JiraBoardIds { get; set; }
+    public string? JiraBoardId { get; set; }
     public string? JiraProjectKey { get; set; }
     public DateTime CreatedAt { get; set; }
     public string? CreatedBy { get; set; }
@@ -25,8 +25,8 @@ public class CreateProjectDto
 
     public bool IsBillable { get; set; }
 
-    [MaxLength(500)]
-    public string? JiraBoardIds { get; set; }
+    [MaxLength(100)]
+    public string? JiraBoardId { get; set; }
 }
 
 public class UpdateProjectDto : CreateProjectDto

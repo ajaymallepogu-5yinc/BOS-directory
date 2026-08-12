@@ -38,7 +38,7 @@ public class AuthController : ControllerBase
         if (string.IsNullOrWhiteSpace(dto.IdToken))
         {
             return BadRequest(new { Message = "Google ID Token is required." });
-        }   
+        }
 
         try
         {
