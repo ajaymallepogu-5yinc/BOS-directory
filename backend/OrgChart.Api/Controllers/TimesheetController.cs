@@ -42,8 +42,9 @@ public class TimesheetController : ControllerBase
         var project = await _db.Projects.FirstOrDefaultAsync(p => p.Id == projectId);
         if (project == null) return NotFound();
 
-        // Nothing to search against if this project wasn't synced from Jira.
-        if (string.IsNullOrWhiteSpace(project.JiraBoardId))
+        // Nothing to search against if this project's space has no board synced from Jira.
+        var boardIds = (project.JiraBoardIds ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (boardIds.Length == 0)
         {
             return Ok(new List<JiraTicketDto>());
         }
@@ -92,33 +93,40 @@ public class TimesheetController : ControllerBase
             // scope set, both failed. The Agile API's board-scoped issue endpoint is authorized
             // by read:board-scope:jira-software instead, which scoped tokens DO support correctly.
             var jql = $"assignee = \"{accountId}\" ORDER BY updated DESC";
-            var url = $"https://api.atlassian.com/ex/jira/{cloudId}/rest/agile/1.0/board/{project.JiraBoardId}/issue?jql={Uri.EscapeDataString(jql)}&fields=summary&maxResults=100";
 
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Authorization = BuildAuthHeader(jiraEmail, jiraApiToken);
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            var response = await _httpClient.SendAsync(request);
-            if (!response.IsSuccessStatusCode)
-            {
-                return StatusCode(502, new { success = false, message = $"Jira ticket search failed (HTTP {(int)response.StatusCode}). The service account may need broader permissions to search issues." });
-            }
-
+            // A space can have more than one board (e.g. separate Scrum + Kanban boards) - query
+            // each and union the results, deduping by ticket key in case the same issue surfaces
+            // on more than one board.
             var tickets = new List<JiraTicketDto>();
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("issues", out var issues))
+            var seenKeys = new HashSet<string>();
+            foreach (var boardId in boardIds)
             {
-                foreach (var issue in issues.EnumerateArray())
+                var url = $"https://api.atlassian.com/ex/jira/{cloudId}/rest/agile/1.0/board/{boardId}/issue?jql={Uri.EscapeDataString(jql)}&fields=summary&maxResults=100";
+
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Authorization = BuildAuthHeader(jiraEmail, jiraApiToken);
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+                var response = await _httpClient.SendAsync(request);
+                if (!response.IsSuccessStatusCode)
                 {
-                    var key = issue.TryGetProperty("key", out var k) ? k.GetString() : null;
-                    string? summary = null;
-                    if (issue.TryGetProperty("fields", out var fields) && fields.TryGetProperty("summary", out var s))
+                    return StatusCode(502, new { success = false, message = $"Jira ticket search failed (HTTP {(int)response.StatusCode}). The service account may need broader permissions to search issues." });
+                }
+
+                var json = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("issues", out var issues))
+                {
+                    foreach (var issue in issues.EnumerateArray())
                     {
-                        summary = s.GetString();
-                    }
-                    if (!string.IsNullOrWhiteSpace(key))
-                    {
+                        var key = issue.TryGetProperty("key", out var k) ? k.GetString() : null;
+                        if (string.IsNullOrWhiteSpace(key) || !seenKeys.Add(key!)) continue;
+
+                        string? summary = null;
+                        if (issue.TryGetProperty("fields", out var fields) && fields.TryGetProperty("summary", out var s))
+                        {
+                            summary = s.GetString();
+                        }
                         tickets.Add(new JiraTicketDto { Key = key!, Summary = string.IsNullOrWhiteSpace(summary) ? key! : summary! });
                     }
                 }
