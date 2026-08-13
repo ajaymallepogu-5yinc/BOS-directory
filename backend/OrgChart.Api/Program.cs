@@ -180,8 +180,7 @@ using (var scope = app.Services.CreateScope())
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    
 }
 else
 {
@@ -202,6 +201,9 @@ else
         });
     });
 }
+
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.UseCors("FrontendPolicy");
 app.UseAuthentication();   // ← MUST come before UseAuthorization to read the session cookie
