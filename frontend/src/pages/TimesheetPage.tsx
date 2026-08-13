@@ -12,6 +12,8 @@ import {
 import type { JiraTicket, TimesheetEntry, TimesheetEntryFormValues } from "../api/timesheetApi";
 import ConfirmModal from "../components/Layout/ConfirmModal";
 import { formatHoursLabel } from "../utils/time";
+import { ACTIVITY_CODES } from "../utils/activityCodes";
+import { stripLeadingProjectName } from "../utils/text";
 import { useTimesheetNotifications } from "../context/TimesheetNotificationsContext";
 
 const MAX_DAILY_HOURS = 8;
@@ -159,29 +161,6 @@ const HOUR_STEP = 0.25; // 15 minutes, matches the old numeric input's step
 // Activity type short forms every "what" item can be tagged as - shown in full in the legend
 // popover next to the column header. JT was removed: picking a real ticket already says "this is
 // ticket work," so a separate tag saying the same thing was redundant.
-const ACTIVITY_CODES: { code: string; type: string; explanation: string }[] = [
-  { code: "DSM", type: "Daily Standup Meetings", explanation: "Daily Scrum/Standup/Syncup Meeting" },
-  { code: "SRM", type: "Sprint Review Meetings", explanation: "Sprint Kick off Meeting, Mid Sprint Review, Sprint Product Review, Sprint Retrospection" },
-  { code: "CSM", type: "Customer meetings", explanation: "Customer/Client meetings" },
-  { code: "ISM", type: "Products + Services", explanation: "Internal Stakeholder Meeting" },
-  { code: "LDM", type: "Leadership", explanation: "Leadership Meeting" },
-  { code: "AHM", type: "All Hands Meeting", explanation: "All Hands Meeting with entire Organization" },
-  { code: "INTM", type: "Internal Meetings", explanation: "Other internal Team Meetings, syncups, checkins, reviews, 1-1, etc." },
-  { code: "EXTM", type: "External Meetings", explanation: "With external persons/vendors/third-party" },
-  { code: "OTH", type: "Other", explanation: "Other - describe it in the field that appears once picked" },
-  { code: "PRA", type: "", explanation: "Pull Request review and approval" },
-  { code: "PRC", type: "", explanation: "Conflict resolution" },
-  { code: "ARB", type: "Architectural Review", explanation: "Technical Architecture / Implementation approach Reviews" },
-  { code: "RPT", type: "Reports", explanation: "WSR/MSR/QSR - Weekly/Monthly/Quarterly Status Review" },
-  { code: "DOC", type: "Documentation", explanation: "Process documentation/ any other documentation other than project doc" },
-  { code: "REV", type: "Review", explanation: "Work review/ Validation/ Follow ups/ Coordination" },
-  { code: "DLV", type: "Delivery", explanation: "Delivery to the Customer (Updates to the Customer / Customer Support Items)" },
-  { code: "SLK", type: "Slack", explanation: "Reverting to team on slack messages - only for PM and above" },
-  { code: "DES", type: "Design", explanation: "Designing on various work items" },
-  { code: "KTS", type: "Keka Timesheets", explanation: "Keka Timesheets, Attendance, Leaves, WFH - review/approval" },
-  { code: "SAM", type: "Sales & Marketing", explanation: "Tasks related to Sales and Marketing" }
-];
-
 // "CODE — Full Name" so the list is self-explanatory without opening the separate "?" legend -
 // PRA/PRC have no "type" in the data, so they fall back to the shorter explanation text instead.
 const ACTIVITY_TYPE_OPTIONS: DropdownOption[] = ACTIVITY_CODES.map((a) => ({
@@ -236,6 +215,7 @@ function Dropdown({
   options,
   placeholder,
   disabled,
+  title,
   clearable = true,
   searchable = false,
   stickyOption
@@ -245,6 +225,9 @@ function Dropdown({
   options: DropdownOption[];
   placeholder: string;
   disabled?: boolean;
+  // Shown on hover even while disabled - a disabled <button> suppresses its own title tooltip in
+  // most browsers, so this goes on the wrapping div instead, which still receives pointer events.
+  title?: string;
   clearable?: boolean;
   searchable?: boolean;
   // Always shown below the scrollable list, unaffected by search/scroll - for an option that
@@ -287,7 +270,7 @@ function Dropdown({
   };
 
   return (
-    <div className="relative">
+    <div className="relative group">
       <button
         ref={buttonRef}
         type="button"
@@ -305,6 +288,15 @@ function Dropdown({
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
+
+      {/* CSS-only tooltip (no JS state, no native-title delay) - opacity fades in on hover with
+          no transition-delay, so it appears effectively instantly instead of the ~600ms+ wait
+          browsers impose on a plain title attribute over a disabled control. */}
+      {disabled && title && (
+        <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-8 z-20 whitespace-nowrap rounded-lg border border-ink-150 bg-white text-ink-800 text-[10px] font-semibold px-2.5 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-100 shadow-lg">
+          {title}
+        </span>
+      )}
 
       {isOpen && pos && (
         <>
@@ -591,8 +583,12 @@ export default function TimesheetPage() {
   // Activity types + this group's project's tickets (already filtered to just this person's
   // assigned tickets server-side), merged into one search list.
   const combinedOptionsFor = (projectId: number | null): DropdownOption[] => {
+    const selectedProjectName = projectId != null ? projects.find((p) => p.id === projectId)?.name : undefined;
     const ticketOptions: DropdownOption[] = projectId != null
-      ? (ticketsByProject[projectId] || []).map((t) => ({ value: `${TICKET_PREFIX}${t.key}`, label: `${t.key} · ${t.summary}` }))
+      ? (ticketsByProject[projectId] || []).map((t) => ({
+          value: `${TICKET_PREFIX}${t.key}`,
+          label: `${t.key} - ${stripLeadingProjectName(t.summary, selectedProjectName)}`
+        }))
       : [];
     return [...ACTIVITY_TYPE_OPTIONS, ...ticketOptions];
   };
@@ -747,10 +743,12 @@ export default function TimesheetPage() {
     groups.reduce((sum, g) => sum + g.rows.reduce((s, r) => s + (parseFloat(r.hours[dateIso]) || 0), 0), 0);
   const weekGrandTotal = weekDateIsos.reduce((sum, d) => sum + dayTotal(d), 0);
 
-  const handleSaveGrid = async () => {
+  // Shared by the Save button and Submit (Submit auto-saves whatever's in the grid first,
+  // so the user never has to press Save separately before submitting).
+  const persistGridChanges = async (options?: { silentWhenEmpty?: boolean }): Promise<{ ok: boolean; changeCount: number }> => {
     if (weekLocked) {
       showNotification("error", "This week is pending your manager's review or already approved and can't be edited.");
-      return;
+      return { ok: false, changeCount: 0 };
     }
 
     // Cells already backed by a saved entry (row.entryIds) must be updated/deleted in place, not
@@ -791,11 +789,11 @@ export default function TimesheetPage() {
         if (filledDays.length > 0) {
           if (!row.pickerValue) {
             showNotification("error", "Pick a ticket or an activity type for every row with hours entered.");
-            return;
+            return { ok: false, changeCount: 0 };
           }
           if (group.projectId == null) {
             showNotification("error", "Pick a project for every group before saving.");
-            return;
+            return { ok: false, changeCount: 0 };
           }
         }
 
@@ -807,7 +805,7 @@ export default function TimesheetPage() {
 
         if (filledDays.length > 0 && activityCode === "OTH" && !row.description.trim()) {
           showNotification("error", "Describe what \"Other\" means for that row.");
-          return;
+          return { ok: false, changeCount: 0 };
         }
 
         for (const d of filledDays) {
@@ -833,14 +831,17 @@ export default function TimesheetPage() {
     }
 
     if (toCreate.length === 0 && toUpdate.length === 0 && toDelete.length === 0) {
-      showNotification("error", "Enter hours for at least one item before saving.");
-      return;
+      if (!options?.silentWhenEmpty) {
+        showNotification("error", "Enter hours for at least one item before saving.");
+        return { ok: false, changeCount: 0 };
+      }
+      return { ok: true, changeCount: 0 };
     }
 
     const overDay = weekDateIsos.find((d) => dayTotals[d] > MAX_DAILY_HOURS);
     if (overDay) {
       showNotification("error", `${formatDate(overDay)} would total ${formatHoursLabel(dayTotals[overDay])} — over the ${MAX_DAILY_HOURS}-hour daily limit.`);
-      return;
+      return { ok: false, changeCount: 0 };
     }
 
     setIsSavingGrid(true);
@@ -852,20 +853,26 @@ export default function TimesheetPage() {
       await runInBatches(toCreate, SAVE_CONCURRENCY_LIMIT, (v) => createTimesheetEntry(v));
       await runInBatches(toUpdate, SAVE_CONCURRENCY_LIMIT, (u) => updateTimesheetEntry(u.id, u.values));
       await runInBatches(toDelete, SAVE_CONCURRENCY_LIMIT, (id) => deleteTimesheetEntry(id));
-      const changeCount = toCreate.length + toUpdate.length + toDelete.length;
-      showNotification("success", `Saved ${changeCount} ${changeCount === 1 ? "change" : "changes"}.`);
-      const fresh = await refreshEntries();
-      setGroups(buildProjectGroups(fresh, weekDateIsos, () => nextLocalId.current++));
-      refreshNotifications();
+      return { ok: true, changeCount: toCreate.length + toUpdate.length + toDelete.length };
     } catch (err: any) {
       // Deliberately don't refresh-and-rebuild here like the success path does - a failed save
       // never reached the server, so rebuilding "from the server" would rebuild from data that
       // never includes what was just typed, wiping it out for no reason. Leave the grid exactly
       // as the user left it so they can fix whatever's wrong (or just retry) without re-typing.
       showNotification("error", err.response?.data?.message || "Failed to save some entries. Please check and try again.");
+      return { ok: false, changeCount: 0 };
     } finally {
       setIsSavingGrid(false);
     }
+  };
+
+  const handleSaveGrid = async () => {
+    const result = await persistGridChanges();
+    if (!result.ok) return;
+    showNotification("success", `Saved ${result.changeCount} ${result.changeCount === 1 ? "change" : "changes"}.`);
+    const fresh = await refreshEntries();
+    setGroups(buildProjectGroups(fresh, weekDateIsos, () => nextLocalId.current++));
+    refreshNotifications();
   };
 
   const weekDrafts = useMemo(() => weekEntries.filter((e) => e.timesheetStatus === "Draft"), [weekEntries]);
@@ -894,6 +901,12 @@ export default function TimesheetPage() {
   const handleConfirmSubmitWeek = async () => {
     setIsSubmittingWeek(true);
     try {
+      // Submit auto-saves whatever's currently in the grid first, so the user doesn't have to
+      // press Save separately before submitting - silentWhenEmpty skips the "nothing to save"
+      // error when everything was already saved as drafts beforehand.
+      const saveResult = await persistGridChanges({ silentWhenEmpty: true });
+      if (!saveResult.ok) return;
+
       const result = await submitTimesheetWeek(toIsoDate(weekStart));
       showNotification("success", `Submitted ${result.submittedCount} ${result.submittedCount === 1 ? "entry" : "entries"} to your manager.`);
       setSubmitWeekConfirmOpen(false);
@@ -1177,19 +1190,19 @@ export default function TimesheetPage() {
                 {weekStatusSummary.Pending && (
                   <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-150">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                    {formatHoursLabel(weekStatusSummary.Pending.hours)} submitted, awaiting your manager's approval ({weekStatusSummary.Pending.count})
+                    Submitted, awaiting your manager's approval
                   </span>
                 )}
                 {weekStatusSummary.Approved && (
                   <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-150">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    {formatHoursLabel(weekStatusSummary.Approved.hours)} approved ({weekStatusSummary.Approved.count})
+                    Approved
                   </span>
                 )}
                 {weekStatusSummary.Rejected && (
                   <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-150">
                     <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-                    {formatHoursLabel(weekStatusSummary.Rejected.hours)} rejected - edit to fix and resubmit ({weekStatusSummary.Rejected.count})
+                    Rejected - edit to fix and resubmit
                     {weekReviewerComment ? ` · "${weekReviewerComment}"` : ""}
                   </span>
                 )}
@@ -1268,9 +1281,10 @@ export default function TimesheetPage() {
                               value={row.pickerValue}
                               onChange={(v) => updateRow(group.id, row.id, { pickerValue: v })}
                               options={combinedOptionsFor(group.projectId)}
-                              placeholder={anyTicketsLoading ? "Loading tickets..." : "Search a type or a ticket..."}
+                              placeholder={group.projectId == null ? "Pick a project first…" : anyTicketsLoading ? "Loading tickets..." : "Search a type or a ticket..."}
+                              title={group.projectId == null ? "Select a project before picking a ticket or activity type" : undefined}
                               searchable
-                              disabled={weekLocked}
+                              disabled={weekLocked || group.projectId == null}
                             />
                             {typeCodeOf(row.pickerValue) === "OTH" && (
                               <input
@@ -1305,12 +1319,20 @@ export default function TimesheetPage() {
                           return (
                             <td key={d} className="py-3 px-2 align-top text-center relative">
                               <div className="relative inline-block group">
+                                {/* CSS-only tooltip, same reasoning as the picker dropdown above -
+                                    instant on hover instead of the native title attribute's delay,
+                                    which is also suppressed entirely on a disabled input in most browsers. */}
+                                {group.projectId == null && (
+                                  <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-8 z-20 whitespace-nowrap rounded-lg border border-ink-150 bg-white text-ink-800 text-[10px] font-semibold px-2.5 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-100 shadow-lg">
+                                    Select a project before logging time
+                                  </span>
+                                )}
                                 <input
                                   type="text"
                                   inputMode="numeric"
                                   value={cellDisplayValue}
-                                  disabled={weekLocked}
-                                  title={cellTitle}
+                                  disabled={weekLocked || group.projectId == null}
+                                  title={group.projectId == null ? undefined : cellTitle}
                                   onChange={(e) => {
                                     // Only reached by paste/IME - typed digits are handled in onKeyDown instead.
                                     const raw = e.target.value.replace(/[^0-9.]/g, "");
@@ -1423,7 +1445,9 @@ export default function TimesheetPage() {
                         <button
                           type="button"
                           onClick={() => addRow(group.id)}
-                          className="inline-flex items-center gap-1 text-[10px] font-bold text-brand hover:underline"
+                          disabled={group.projectId == null}
+                          title={group.projectId == null ? "Pick a project first" : undefined}
+                          className="inline-flex items-center gap-1 text-[10px] font-bold text-brand hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
                         >
                           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -1479,27 +1503,29 @@ export default function TimesheetPage() {
               </table>
             </div>
 
-            <div className="flex items-center justify-end gap-3 mt-3 mb-6">
-              {weekDrafts.length > 0 && (
-                <span className="text-xs text-ink-500">
-                  <span className="font-black text-ink-900">{formatHoursLabel(weekDraftTotal)}</span> drafted, not yet submitted
-                </span>
-              )}
-              <button
-                onClick={handleSaveGrid}
-                disabled={isSavingGrid || weekLocked}
-                className="py-2 px-5 rounded-xl border border-ink-200 bg-white text-xs font-semibold text-ink-700 hover:bg-ink-50 transition-all disabled:opacity-50"
-              >
-                {isSavingGrid ? "Saving..." : "Save"}
-              </button>
-              <button
-                onClick={() => setSubmitWeekConfirmOpen(true)}
-                disabled={weekDrafts.length === 0}
-                className="py-2 px-5 rounded-xl bg-brand text-xs font-semibold text-white hover:bg-brand/90 transition-all shadow-md shadow-brand/10 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Submit Weekly Timesheet
-              </button>
-            </div>
+            {!weekLocked && (
+              <div className="flex items-center justify-end gap-3 mt-3 mb-6">
+                {weekDrafts.length > 0 && (
+                  <span className="text-xs text-ink-500">
+                    <span className="font-black text-ink-900">{formatHoursLabel(weekDraftTotal)}</span> drafted, not yet submitted
+                  </span>
+                )}
+                <button
+                  onClick={handleSaveGrid}
+                  disabled={isSavingGrid || isSubmittingWeek}
+                  className="py-2 px-5 rounded-xl border border-ink-200 bg-white text-xs font-semibold text-ink-700 hover:bg-ink-50 transition-all disabled:opacity-50"
+                >
+                  {isSavingGrid ? "Saving..." : "Save"}
+                </button>
+                <button
+                  onClick={() => setSubmitWeekConfirmOpen(true)}
+                  disabled={weekGrandTotal <= 0 || isSubmittingWeek}
+                  className="py-2 px-5 rounded-xl bg-brand text-xs font-semibold text-white hover:bg-brand/90 transition-all shadow-md shadow-brand/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Submit Weekly Timesheet
+                </button>
+              </div>
+            )}
           </div>
 
         </div>
@@ -1625,7 +1651,8 @@ export default function TimesheetPage() {
               </h2>
               <button
                 onClick={() => setSubmitWeekConfirmOpen(false)}
-                className="text-ink-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors"
+                disabled={isSubmittingWeek}
+                className="text-ink-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-ink-400"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1634,42 +1661,18 @@ export default function TimesheetPage() {
             </div>
 
             <div className="flex-1 overflow-auto scrollbar-none -mx-1 px-1">
-              {weekDateIsos.map((iso) => {
-                const dayDrafts = weekDrafts.filter((e) => e.workDate.slice(0, 10) === iso);
-                if (dayDrafts.length === 0) return null;
-                return (
-                  <div key={iso} className="mb-3">
-                    <p className="text-[10px] font-bold text-ink-500 uppercase tracking-wide mb-1.5">{formatDate(iso)}</p>
-                    <div className="rounded-xl border border-ink-150 divide-y divide-ink-100">
-                      {dayDrafts.map((entry) => (
-                        <div key={entry.id} className="flex items-center justify-between px-3 py-2 text-xs gap-3">
-                          <div className="flex items-center gap-2 min-w-0">
-                            {entry.jiraIssueKey ? (
-                              <span className="shrink-0 rounded-lg bg-sky-50/50 border border-sky-100/70 text-sky-800 font-mono text-[10px] px-2 py-1">
-                                {entry.jiraIssueKey}
-                              </span>
-                            ) : (
-                              <span className="text-ink-700 truncate">{entry.activityCode || entry.taskDescription}</span>
-                            )}
-                            {entry.comment && <span className="text-ink-400 italic truncate">"{entry.comment}"</span>}
-                          </div>
-                          <span className="font-semibold text-ink-800 shrink-0">{formatHoursLabel(entry.hoursSpent)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+              <p className="text-xs text-ink-600 leading-relaxed">
+                You're about to submit this week's timesheet to your manager for review. Once submitted, you won't be able to edit it unless it's rejected.
+              </p>
             </div>
 
             <div className="flex items-center justify-between pt-4 mt-2 border-t border-ink-150 shrink-0">
-              <span className="text-xs font-black text-ink-900">
-                Total: {formatHoursLabel(weekDraftTotal)} across {weekDrafts.length} {weekDrafts.length === 1 ? "entry" : "entries"}
-              </span>
+              <span className="text-xs font-black text-ink-900">Total: {formatHoursLabel(weekGrandTotal)}</span>
               <div className="flex gap-3">
                 <button
                   onClick={() => setSubmitWeekConfirmOpen(false)}
-                  className="py-2 px-4 rounded-xl border border-ink-200 bg-white text-xs font-semibold text-ink-700 hover:bg-ink-50 transition-all"
+                  disabled={isSubmittingWeek}
+                  className="py-2 px-4 rounded-xl border border-ink-200 bg-white text-xs font-semibold text-ink-700 hover:bg-ink-50 transition-all disabled:opacity-50"
                 >
                   Cancel
                 </button>

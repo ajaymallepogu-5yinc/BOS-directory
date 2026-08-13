@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchTimesheetEntries, reviewTimesheet } from "../api/timesheetApi";
 import type { TimesheetEntry } from "../api/timesheetApi";
 import { formatHoursLabel } from "../utils/time";
+import { activityCodeLabel } from "../utils/activityCodes";
 import { useTimesheetNotifications } from "../context/TimesheetNotificationsContext";
 
 interface TeamWeekGroup {
@@ -266,13 +267,14 @@ export default function TeamApprovalsPage() {
                   {isExpanded && (
                     <div className="border-t border-ink-150">
                       <div className="max-h-96 overflow-auto scrollbar-none">
-                      <table className="w-full text-left border-collapse">
+                      <table className="w-full text-left border-collapse table-fixed">
                         <thead className="sticky top-0 z-10">
                           <tr className="border-b border-ink-150 bg-ink-50 text-[10px] font-bold uppercase tracking-wider text-ink-500">
-                            <th className="py-2 px-4">Project</th>
-                            <th className="py-2 px-4">Work</th>
-                            <th className="py-2 px-4">Date</th>
-                            <th className="py-2 px-4">Hours</th>
+                            <th className="py-2 px-4 w-[14%]">Project</th>
+                            <th className="py-2 px-4 w-[34%]">Work</th>
+                            <th className="py-2 px-4 w-[12%]">Date</th>
+                            <th className="py-2 px-4 w-[10%]">Hours</th>
+                            <th className="py-2 px-4 w-[30%]">Comments</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-ink-100 text-xs text-ink-700">
@@ -281,19 +283,23 @@ export default function TeamApprovalsPage() {
                               <td className="py-2 px-4">{entry.projectName || <span className="text-ink-400 italic">—</span>}</td>
                               <td className="py-2 px-4">
                                 {entry.jiraIssueKey ? (
-                                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-sky-50/50 border border-sky-100/70 text-sky-800 font-mono text-[10px] px-2 py-1">
-                                    {entry.jiraIssueKey}
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <span className="shrink-0 rounded-lg bg-sky-50/50 border border-sky-100/70 text-sky-800 font-mono text-[10px] px-2 py-1">
+                                      {entry.jiraIssueKey}
+                                    </span>
+                                    {entry.jiraIssueSummary && <span className="text-ink-700">{entry.jiraIssueSummary}</span>}
                                   </span>
+                                ) : entry.activityCode ? (
+                                  <span className="text-ink-700">{activityCodeLabel(entry.activityCode)}</span>
+                                ) : entry.taskDescription ? (
+                                  <span className="text-ink-700">{entry.taskDescription}</span>
                                 ) : (
-                                  <span className="text-ink-700">
-                                    {entry.activityCode}
-                                    {entry.activityCode === "OTH" && entry.taskDescription ? ` — ${entry.taskDescription}` : ""}
-                                  </span>
+                                  <span className="text-ink-400 italic">—</span>
                                 )}
-                                {entry.comment && <span className="text-[10px] text-ink-400 italic ml-2">"{entry.comment}"</span>}
                               </td>
-                              <td className="py-2 px-4 text-ink-500">{formatShortDate(entry.workDate)}</td>
-                              <td className="py-2 px-4 font-semibold text-ink-800">{formatHoursLabel(entry.hoursSpent)}</td>
+                              <td className="py-2 px-4 text-ink-500 whitespace-nowrap">{formatShortDate(entry.workDate)}</td>
+                              <td className="py-2 px-4 font-semibold text-ink-800 whitespace-nowrap">{formatHoursLabel(entry.hoursSpent)}</td>
+                              <td className="py-2 px-4 text-ink-500 italic">{entry.comment || <span className="text-ink-400">—</span>}</td>
                             </tr>
                           ))}
                         </tbody>

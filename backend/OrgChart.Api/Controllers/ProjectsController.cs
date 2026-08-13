@@ -166,52 +166,63 @@ public class ProjectsController : ControllerBase
             // API's board listing works fine with the exact same token. Every board's own
             // `location` carries its parent project's key/name, so one board listing call derives
             // the full distinct-projects list (and each project's board ids) without a second call.
-            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.atlassian.com/ex/jira/{cloudId}/rest/agile/1.0/board?maxResults=100");
-            var authBytes = Encoding.UTF8.GetBytes($"{jiraEmail}:{jiraApiToken}");
-            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            var response = await _httpClient.SendAsync(request);
-            if (!response.IsSuccessStatusCode)
-            {
-                // Deliberately don't forward Jira's response body - it could echo back request
-                // details. Only the status code is safe to surface.
-                return StatusCode(502, new { success = false, message = $"Jira request failed (HTTP {(int)response.StatusCode}). Verify the configured Jira URL and credentials, and that the account has been granted access to a project." });
-            }
-
             var spacesByKey = new Dictionary<string, JiraSpace>();
             boardIdsByProjectKey = new Dictionary<string, List<string>>();
 
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("values", out var values))
+            var startAt = 0;
+            const int pageSize = 100;
+            bool isLast;
+            do
             {
-                foreach (var board in values.EnumerateArray())
+                var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.atlassian.com/ex/jira/{cloudId}/rest/agile/1.0/board?maxResults={pageSize}&startAt={startAt}");
+                var authBytes = Encoding.UTF8.GetBytes($"{jiraEmail}:{jiraApiToken}");
+                request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+                var response = await _httpClient.SendAsync(request);
+                if (!response.IsSuccessStatusCode)
                 {
-                    if (!board.TryGetProperty("location", out var location)) continue;
-
-                    // A board with no project key (rare - e.g. a cross-project filter board) can't
-                    // be attributed to a single space, so it's skipped rather than guessed at.
-                    var projectKey = location.TryGetProperty("projectKey", out var pk) ? pk.GetString() : null;
-                    if (string.IsNullOrWhiteSpace(projectKey)) continue;
-
-                    if (!spacesByKey.ContainsKey(projectKey))
-                    {
-                        var projectName = location.TryGetProperty("projectName", out var pn) ? pn.GetString() : null;
-                        spacesByKey[projectKey] = new JiraSpace(projectKey, string.IsNullOrWhiteSpace(projectName) ? projectKey : projectName!);
-                    }
-
-                    var boardId = board.TryGetProperty("id", out var idProp) ? idProp.GetRawText() : null;
-                    if (string.IsNullOrWhiteSpace(boardId)) continue;
-
-                    if (!boardIdsByProjectKey.TryGetValue(projectKey, out var ids))
-                    {
-                        ids = new List<string>();
-                        boardIdsByProjectKey[projectKey] = ids;
-                    }
-                    ids.Add(boardId);
+                    // Deliberately don't forward Jira's response body - it could echo back request
+                    // details. Only the status code is safe to surface.
+                    return StatusCode(502, new { success = false, message = $"Jira request failed (HTTP {(int)response.StatusCode}). Verify the configured Jira URL and credentials, and that the account has been granted access to a project." });
                 }
-            }
+
+                var json = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("values", out var values))
+                {
+                    foreach (var board in values.EnumerateArray())
+                    {
+                        if (!board.TryGetProperty("location", out var location)) continue;
+
+                        // A board with no project key (rare - e.g. a cross-project filter board) can't
+                        // be attributed to a single space, so it's skipped rather than guessed at.
+                        var projectKey = location.TryGetProperty("projectKey", out var pk) ? pk.GetString() : null;
+                        if (string.IsNullOrWhiteSpace(projectKey)) continue;
+
+                        if (!spacesByKey.ContainsKey(projectKey))
+                        {
+                            var projectName = location.TryGetProperty("projectName", out var pn) ? pn.GetString() : null;
+                            spacesByKey[projectKey] = new JiraSpace(projectKey, string.IsNullOrWhiteSpace(projectName) ? projectKey : projectName!);
+                        }
+
+                        var boardId = board.TryGetProperty("id", out var idProp) ? idProp.GetRawText() : null;
+                        if (string.IsNullOrWhiteSpace(boardId)) continue;
+
+                        if (!boardIdsByProjectKey.TryGetValue(projectKey, out var ids))
+                        {
+                            ids = new List<string>();
+                            boardIdsByProjectKey[projectKey] = ids;
+                        }
+                        ids.Add(boardId);
+                    }
+                }
+
+                // Missing isLast is treated as "stop" rather than looping forever on an
+                // unexpected response shape.
+                isLast = !doc.RootElement.TryGetProperty("isLast", out var isLastProp) || isLastProp.GetBoolean();
+                startAt += pageSize;
+            } while (!isLast);
 
             spaces = spacesByKey.Values.ToList();
         }

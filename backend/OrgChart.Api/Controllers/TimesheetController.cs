@@ -23,6 +23,12 @@ public class TimesheetController : ControllerBase
 {
     private const int MaxDailyMinutes = 8 * 60;
 
+    // Serializes "find or create this week's Timesheet row" per employee+week - without this,
+    // saving several new entries at once (first save of a week) fires concurrent creates that
+    // can each see no existing row and insert their own, splitting entries across duplicate
+    // Timesheet rows for the same week.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _timesheetCreationLocks = new();
+
     private readonly AppDbContext _db;
     private readonly UserManager<Employee> _userManager;
     private readonly IConfiguration _config;
@@ -389,38 +395,48 @@ public class TimesheetController : ControllerBase
     private async Task<Timesheet?> GetOrCreateEditableTimesheetAsync(int employeeId, DateTime workDate)
     {
         var weekStart = GetMonday(workDate);
+        var lockKey = $"{employeeId}:{weekStart:yyyyMMdd}";
+        var gate = _timesheetCreationLocks.GetOrAdd(lockKey, _ => new SemaphoreSlim(1, 1));
 
-        var timesheet = await _db.Timesheets
-            .FirstOrDefaultAsync(t => t.EmployeeId == employeeId && t.StartDate == weekStart && !t.IsDeleted);
-
-        if (timesheet == null)
+        await gate.WaitAsync();
+        try
         {
-            timesheet = new Timesheet
+            var timesheet = await _db.Timesheets
+                .FirstOrDefaultAsync(t => t.EmployeeId == employeeId && t.StartDate == weekStart && !t.IsDeleted);
+
+            if (timesheet == null)
             {
-                EmployeeId = employeeId,
-                StartDate = weekStart,
-                EndDate = weekStart.AddDays(4),
-                Status = "Draft",
-                DateCreated = DateTime.UtcNow
-            };
-            _db.Timesheets.Add(timesheet);
-            await _db.SaveChangesAsync();
+                timesheet = new Timesheet
+                {
+                    EmployeeId = employeeId,
+                    StartDate = weekStart,
+                    EndDate = weekStart.AddDays(4),
+                    Status = "Draft",
+                    DateCreated = DateTime.UtcNow
+                };
+                _db.Timesheets.Add(timesheet);
+                await _db.SaveChangesAsync();
+                return timesheet;
+            }
+
+            if (timesheet.Status == "Pending" || timesheet.Status == "Approved")
+            {
+                return null;
+            }
+
+            if (timesheet.Status == "Rejected")
+            {
+                timesheet.Status = "Draft";
+                timesheet.DateModified = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+            }
+
             return timesheet;
         }
-
-        if (timesheet.Status == "Pending" || timesheet.Status == "Approved")
+        finally
         {
-            return null;
+            gate.Release();
         }
-
-        if (timesheet.Status == "Rejected")
-        {
-            timesheet.Status = "Draft";
-            timesheet.DateModified = DateTime.UtcNow;
-            await _db.SaveChangesAsync();
-        }
-
-        return timesheet;
     }
 
     /// <summary>Every entry is either a Jira ticket or an activity type, never both - and OTH
