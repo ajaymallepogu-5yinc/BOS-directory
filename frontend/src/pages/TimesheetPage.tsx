@@ -18,11 +18,22 @@ import { useTimesheetNotifications } from "../context/TimesheetNotificationsCont
 
 const MAX_DAILY_HOURS = 8;
 const SAVE_CONCURRENCY_LIMIT = 4; // keeps peak concurrent save requests well under the database's connection limit
+const LAST_WEEK_STORAGE_KEY = "timesheet:lastWeekStart"; // survives closing the browser, unlike sessionStorage
 
 async function runInBatches<T>(items: T[], batchSize: number, run: (item: T) => Promise<unknown>): Promise<void> {
   for (let i = 0; i < items.length; i += batchSize) {
     await Promise.all(items.slice(i, i + batchSize).map(run));
   }
+}
+
+// Same batching as runInBatches, but keeps each result in its original order - needed so a
+// newly-created entry's real id can be matched back to whichever grid row/day requested it.
+async function runInBatchesWithResults<T, R>(items: T[], batchSize: number, run: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    results.push(...(await Promise.all(items.slice(i, i + batchSize).map(run))));
+  }
+  return results;
 }
 
 /** One "what" line under a project: either a ticket (pickerValue = "ticket:KEY") or an
@@ -456,8 +467,17 @@ export default function TimesheetPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
-  // Week navigation + grid state
-  const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
+  // Week navigation + grid state - resumes whichever week was last viewed (if any) instead of
+  // always defaulting to the current week, so switching modules and coming back (or even closing
+  // the browser) doesn't silently jump the user back to today.
+  const [weekStart, setWeekStart] = useState(() => {
+    const saved = localStorage.getItem(LAST_WEEK_STORAGE_KEY);
+    if (saved) {
+      const parsed = new Date(saved + "T00:00:00");
+      if (!isNaN(parsed.getTime())) return getMonday(parsed);
+    }
+    return getMonday(new Date());
+  });
   const weekDays = useMemo(() => Array.from({ length: 5 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   const weekDateIsos = useMemo(() => weekDays.map(toIsoDate), [weekDays]);
   // Sat/Sun are shown in the grid for a complete week view, but aren't fillable - kept
@@ -681,6 +701,7 @@ export default function TimesheetPage() {
 
   const goToWeek = (newStart: Date) => {
     setWeekStart(newStart);
+    localStorage.setItem(LAST_WEEK_STORAGE_KEY, toIsoDate(newStart));
     setGroups(buildProjectGroups(myEntries, weekIsosFor(newStart), () => nextLocalId.current++));
   };
 
@@ -745,9 +766,22 @@ export default function TimesheetPage() {
 
   // Shared by the Save button and Submit (Submit auto-saves whatever's in the grid first,
   // so the user never has to press Save separately before submitting).
-  const persistGridChanges = async (options?: { silentWhenEmpty?: boolean }): Promise<{ ok: boolean; changeCount: number }> => {
+  const persistGridChanges = async (options?: {
+    // Suppresses only the "nothing to save" error - used by Submit, which calls this first and
+    // shouldn't complain just because everything was already saved as drafts beforehand.
+    silent?: boolean;
+    // Auto-save only: skips whichever row/day isn't ready yet (still mid-pick, missing its
+    // "Other" description, or would blow the daily cap) instead of blocking every other row in
+    // the grid over it. Submit deliberately does NOT set this - it should still block loudly if
+    // the week genuinely can't be saved, rather than silently submitting less than what's on screen.
+    skipIncomplete?: boolean;
+  }): Promise<{ ok: boolean; changeCount: number }> => {
     if (weekLocked) {
-      showNotification("error", "This week is pending your manager's review or already approved and can't be edited.");
+      // Reached by the unmount-flush firing right as the user navigates away from an
+      // already-locked week - nothing to report, there was nothing editable to save anyway.
+      if (!options?.skipIncomplete) {
+        showNotification("error", "This week is pending your manager's review or already approved and can't be edited.");
+      }
       return { ok: false, changeCount: 0 };
     }
 
@@ -773,6 +807,10 @@ export default function TimesheetPage() {
     const toCreate: TimesheetEntryFormValues[] = [];
     const toUpdate: { id: number; values: TimesheetEntryFormValues }[] = [];
     const toDelete: number[] = [];
+    // Parallel to toCreate/toDelete (same index), so the real ids that come back can be patched
+    // into these exact (group, row, day) spots afterward without touching anything else.
+    const createRefs: { groupId: number; rowId: number; day: string }[] = [];
+    const deleteRefs: { groupId: number; rowId: number; day: string }[] = [];
 
     for (const group of groups) {
       for (const row of group.rows) {
@@ -788,10 +826,12 @@ export default function TimesheetPage() {
 
         if (filledDays.length > 0) {
           if (!row.pickerValue) {
+            if (options?.skipIncomplete) continue;
             showNotification("error", "Pick a ticket or an activity type for every row with hours entered.");
             return { ok: false, changeCount: 0 };
           }
           if (group.projectId == null) {
+            if (options?.skipIncomplete) continue;
             showNotification("error", "Pick a project for every group before saving.");
             return { ok: false, changeCount: 0 };
           }
@@ -804,6 +844,7 @@ export default function TimesheetPage() {
           isTicket && group.projectId != null ? ticketsByProject[group.projectId]?.find((t) => t.key === ticketKey)?.summary : undefined;
 
         if (filledDays.length > 0 && activityCode === "OTH" && !row.description.trim()) {
+          if (options?.skipIncomplete) continue;
           showNotification("error", "Describe what \"Other\" means for that row.");
           return { ok: false, changeCount: 0 };
         }
@@ -823,15 +864,21 @@ export default function TimesheetPage() {
           };
           const existingId = row.entryIds[d];
           if (existingId) toUpdate.push({ id: existingId, values });
-          else toCreate.push(values);
+          else {
+            toCreate.push(values);
+            createRefs.push({ groupId: group.id, rowId: row.id, day: d });
+          }
         }
 
-        for (const d of clearedDays) toDelete.push(row.entryIds[d]);
+        for (const d of clearedDays) {
+          toDelete.push(row.entryIds[d]);
+          deleteRefs.push({ groupId: group.id, rowId: row.id, day: d });
+        }
       }
     }
 
     if (toCreate.length === 0 && toUpdate.length === 0 && toDelete.length === 0) {
-      if (!options?.silentWhenEmpty) {
+      if (!options?.silent) {
         showNotification("error", "Enter hours for at least one item before saving.");
         return { ok: false, changeCount: 0 };
       }
@@ -840,6 +887,11 @@ export default function TimesheetPage() {
 
     const overDay = weekDateIsos.find((d) => dayTotals[d] > MAX_DAILY_HOURS);
     if (overDay) {
+      // Can't skip just the offending row here the way the picker/description checks above do -
+      // this is a whole-day total across every row, not one row's own problem. Auto-save just
+      // leaves everything unsaved for this round instead of reporting it; it'll resolve on its
+      // own once the user adjusts the hours, or gets reported for real on an explicit Save/Submit.
+      if (options?.skipIncomplete) return { ok: true, changeCount: 0 };
       showNotification("error", `${formatDate(overDay)} would total ${formatHoursLabel(dayTotals[overDay])} — over the ${MAX_DAILY_HOURS}-hour daily limit.`);
       return { ok: false, changeCount: 0 };
     }
@@ -850,16 +902,44 @@ export default function TimesheetPage() {
       // them all in one Promise.all can outrun the database's own connection limit (the same
       // "max clients reached" crash seen on the ticket-fetch path). Batching keeps peak
       // concurrent requests low regardless of how many entries are being saved.
-      await runInBatches(toCreate, SAVE_CONCURRENCY_LIMIT, (v) => createTimesheetEntry(v));
+      const createdEntries = await runInBatchesWithResults(toCreate, SAVE_CONCURRENCY_LIMIT, (v) => createTimesheetEntry(v));
       await runInBatches(toUpdate, SAVE_CONCURRENCY_LIMIT, (u) => updateTimesheetEntry(u.id, u.values));
       await runInBatches(toDelete, SAVE_CONCURRENCY_LIMIT, (id) => deleteTimesheetEntry(id));
+
+      // Patch just the affected entryIds in place, rather than refetching and rebuilding the
+      // whole grid from the server - auto-save runs this silently and often, and a full rebuild
+      // would wipe out any row that has no saved entry yet (a freshly added empty row, or one
+      // with a project/ticket picked but no hours typed).
+      if (createRefs.length > 0 || deleteRefs.length > 0) {
+        setGroups((prev) =>
+          prev.map((g) => ({
+            ...g,
+            rows: g.rows.map((r) => {
+              const creates = createRefs
+                .map((ref, i) => ({ ref, entry: createdEntries[i] }))
+                .filter(({ ref }) => ref.groupId === g.id && ref.rowId === r.id);
+              const deletes = deleteRefs.filter((ref) => ref.groupId === g.id && ref.rowId === r.id);
+              if (creates.length === 0 && deletes.length === 0) return r;
+              const entryIds = { ...r.entryIds };
+              creates.forEach(({ ref, entry }) => { entryIds[ref.day] = entry.id; });
+              deletes.forEach((ref) => { delete entryIds[ref.day]; });
+              return { ...r, entryIds };
+            })
+          }))
+        );
+      }
+
       return { ok: true, changeCount: toCreate.length + toUpdate.length + toDelete.length };
     } catch (err: any) {
       // Deliberately don't refresh-and-rebuild here like the success path does - a failed save
       // never reached the server, so rebuilding "from the server" would rebuild from data that
       // never includes what was just typed, wiping it out for no reason. Leave the grid exactly
       // as the user left it so they can fix whatever's wrong (or just retry) without re-typing.
-      showNotification("error", err.response?.data?.message || "Failed to save some entries. Please check and try again.");
+      // Auto-save stays quiet even on a real failure (just retries on the next debounce cycle);
+      // Submit's own pre-save step still needs to surface this, since it's about to submit.
+      if (!options?.skipIncomplete) {
+        showNotification("error", err.response?.data?.message || "Failed to save some entries. Please check and try again.");
+      }
       return { ok: false, changeCount: 0 };
     } finally {
       setIsSavingGrid(false);
@@ -874,6 +954,28 @@ export default function TimesheetPage() {
     setGroups(buildProjectGroups(fresh, weekDateIsos, () => nextLocalId.current++));
     refreshNotifications();
   };
+
+  // Auto-save: after a short pause with no further changes, silently persist whatever's
+  // currently typed - same logic as the Save button, just triggered automatically instead of by
+  // a click, skipping (rather than blocking on) whatever isn't ready yet, and without any
+  // notifications either way.
+  useEffect(() => {
+    if (weekLocked || isSavingGrid || isSubmittingWeek) return;
+    const timer = setTimeout(() => {
+      persistGridChanges({ silent: true, skipIncomplete: true });
+    }, 1800);
+    return () => clearTimeout(timer);
+  }, [groups, weekLocked, isSavingGrid, isSubmittingWeek]);
+
+  // Also flush once on unmount (e.g. switching to another module) in case a change was still
+  // sitting inside the debounce window above when the user navigated away.
+  const latestPersistRef = useRef(persistGridChanges);
+  latestPersistRef.current = persistGridChanges;
+  useEffect(() => {
+    return () => {
+      latestPersistRef.current({ silent: true, skipIncomplete: true });
+    };
+  }, []);
 
   const weekDrafts = useMemo(() => weekEntries.filter((e) => e.timesheetStatus === "Draft"), [weekEntries]);
   const weekDraftTotal = useMemo(() => weekDrafts.reduce((sum, e) => sum + e.hoursSpent, 0), [weekDrafts]);
@@ -904,7 +1006,7 @@ export default function TimesheetPage() {
       // Submit auto-saves whatever's currently in the grid first, so the user doesn't have to
       // press Save separately before submitting - silentWhenEmpty skips the "nothing to save"
       // error when everything was already saved as drafts beforehand.
-      const saveResult = await persistGridChanges({ silentWhenEmpty: true });
+      const saveResult = await persistGridChanges({ silent: true });
       if (!saveResult.ok) return;
 
       const result = await submitTimesheetWeek(toIsoDate(weekStart));

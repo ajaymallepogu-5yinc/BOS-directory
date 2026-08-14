@@ -311,13 +311,13 @@ export default function TeamApprovalsPage() {
                             onClick={() => openReview(group, "Approved")}
                             className="py-1.5 px-3 rounded-lg bg-emerald-50 border border-emerald-150 text-emerald-700 text-[10px] font-bold hover:bg-emerald-100 transition-all"
                           >
-                            Approve Week
+                            Approve
                           </button>
                           <button
                             onClick={() => openReview(group, "Rejected")}
                             className="py-1.5 px-3 rounded-lg bg-rose-50 border border-rose-150 text-rose-700 text-[10px] font-bold hover:bg-rose-100 transition-all"
                           >
-                            Reject Week
+                            Reject
                           </button>
                         </div>
                       ) : (

@@ -189,8 +189,14 @@ public class ProjectsController : ControllerBase
 
                 var json = await response.Content.ReadAsStringAsync();
                 using var doc = JsonDocument.Parse(json);
+                // Jira caps the real page size (currently 50) regardless of what maxResults asks
+                // for, so the next page must start after however many boards actually came back in
+                // THIS page - advancing by the requested pageSize instead silently skips whichever
+                // boards fell in the gap between what was asked for and what was actually returned.
+                var receivedCount = 0;
                 if (doc.RootElement.TryGetProperty("values", out var values))
                 {
+                    receivedCount = values.GetArrayLength();
                     foreach (var board in values.EnumerateArray())
                     {
                         if (!board.TryGetProperty("location", out var location)) continue;
@@ -219,9 +225,10 @@ public class ProjectsController : ControllerBase
                 }
 
                 // Missing isLast is treated as "stop" rather than looping forever on an
-                // unexpected response shape.
-                isLast = !doc.RootElement.TryGetProperty("isLast", out var isLastProp) || isLastProp.GetBoolean();
-                startAt += pageSize;
+                // unexpected response shape. An empty page also stops the loop outright - otherwise
+                // a false/missing isLast on a page with nothing left would spin at the same startAt forever.
+                isLast = !doc.RootElement.TryGetProperty("isLast", out var isLastProp) || isLastProp.GetBoolean() || receivedCount == 0;
+                startAt += receivedCount;
             } while (!isLast);
 
             spaces = spacesByKey.Values.ToList();
