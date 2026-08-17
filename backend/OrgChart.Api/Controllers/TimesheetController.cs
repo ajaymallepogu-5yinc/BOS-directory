@@ -29,6 +29,27 @@ public class TimesheetController : ControllerBase
     // Timesheet rows for the same week.
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _timesheetCreationLocks = new();
 
+    // Serializes "check today's total, then save" per employee+day - same reasoning as above but
+    // for the daily-hour cap: several entries saved at once for the same day each independently
+    // sum up the day's existing minutes before any of them commit, so each can individually pass
+    // the 8-hour check even though their combined total blows past it.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _dailyCapLocks = new();
+
+    private static async Task<IDisposable> AcquireDailyCapLockAsync(int employeeId, DateTime workDate)
+    {
+        var key = $"{employeeId}:{workDate:yyyyMMdd}";
+        var gate = _dailyCapLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        return new Releaser(gate);
+    }
+
+    private sealed class Releaser : IDisposable
+    {
+        private readonly SemaphoreSlim _gate;
+        public Releaser(SemaphoreSlim gate) => _gate = gate;
+        public void Dispose() => _gate.Release();
+    }
+
     private readonly AppDbContext _db;
     private readonly UserManager<Employee> _userManager;
     private readonly IConfiguration _config;
@@ -211,31 +232,35 @@ public class TimesheetController : ControllerBase
             return BadRequest(new { message = "Hours spent must be greater than zero." });
         }
 
-        var dailyCapError = await CheckDailyCapAsync(currentId.Value, dto.WorkDate.Date, dto.HoursSpent);
-        if (dailyCapError != null) return BadRequest(new { message = dailyCapError });
-
-        var timesheet = await GetOrCreateEditableTimesheetAsync(currentId.Value, dto.WorkDate.Date);
-        if (timesheet == null)
+        TimesheetEntry entry;
+        using (await AcquireDailyCapLockAsync(currentId.Value, dto.WorkDate.Date))
         {
-            return BadRequest(new { message = "This week is pending your manager's review or already approved and can't be edited." });
+            var dailyCapError = await CheckDailyCapAsync(currentId.Value, dto.WorkDate.Date, dto.HoursSpent);
+            if (dailyCapError != null) return BadRequest(new { message = dailyCapError });
+
+            var timesheet = await GetOrCreateEditableTimesheetAsync(currentId.Value, dto.WorkDate.Date);
+            if (timesheet == null)
+            {
+                return BadRequest(new { message = "This week is pending your manager's review or already approved and can't be edited." });
+            }
+
+            entry = new TimesheetEntry
+            {
+                TimesheetId = timesheet.Id,
+                ProjectId = dto.ProjectId,
+                JiraIssueKey = dto.JiraIssueKey,
+                JiraIssueSummary = dto.JiraIssueSummary,
+                TaskDescription = dto.TaskDescription,
+                ActivityCode = dto.ActivityCode,
+                Date = dto.WorkDate.Date,
+                Minutes = HoursToMinutes(dto.HoursSpent),
+                Comment = dto.Comment,
+                DateCreated = DateTime.UtcNow
+            };
+
+            _db.TimesheetEntries.Add(entry);
+            await _db.SaveChangesAsync();
         }
-
-        var entry = new TimesheetEntry
-        {
-            TimesheetId = timesheet.Id,
-            ProjectId = dto.ProjectId,
-            JiraIssueKey = dto.JiraIssueKey,
-            JiraIssueSummary = dto.JiraIssueSummary,
-            TaskDescription = dto.TaskDescription,
-            ActivityCode = dto.ActivityCode,
-            Date = dto.WorkDate.Date,
-            Minutes = HoursToMinutes(dto.HoursSpent),
-            Comment = dto.Comment,
-            DateCreated = DateTime.UtcNow
-        };
-
-        _db.TimesheetEntries.Add(entry);
-        await _db.SaveChangesAsync();
 
         entry = await _db.TimesheetEntries
             .Include(e => e.Timesheet).ThenInclude(t => t.Employee)
@@ -269,28 +294,31 @@ public class TimesheetController : ControllerBase
             return BadRequest(new { message = "Hours spent must be greater than zero." });
         }
 
-        var dailyCapError = await CheckDailyCapAsync(currentId.Value, dto.WorkDate.Date, dto.HoursSpent, excludeEntryId: id);
-        if (dailyCapError != null) return BadRequest(new { message = dailyCapError });
-
-        // Editing a Rejected week sends the whole week back through the Draft -> Submit Week
-        // flow rather than leaving it Rejected - the old review no longer applies once corrected.
-        if (entry.Timesheet.Status == "Rejected")
+        using (await AcquireDailyCapLockAsync(currentId.Value, dto.WorkDate.Date))
         {
-            entry.Timesheet.Status = "Draft";
-            entry.Timesheet.DateModified = DateTime.UtcNow;
+            var dailyCapError = await CheckDailyCapAsync(currentId.Value, dto.WorkDate.Date, dto.HoursSpent, excludeEntryId: id);
+            if (dailyCapError != null) return BadRequest(new { message = dailyCapError });
+
+            // Editing a Rejected week sends the whole week back through the Draft -> Submit Week
+            // flow rather than leaving it Rejected - the old review no longer applies once corrected.
+            if (entry.Timesheet.Status == "Rejected")
+            {
+                entry.Timesheet.Status = "Draft";
+                entry.Timesheet.DateModified = DateTime.UtcNow;
+            }
+
+            entry.ProjectId = dto.ProjectId;
+            entry.JiraIssueKey = dto.JiraIssueKey;
+            entry.JiraIssueSummary = dto.JiraIssueSummary;
+            entry.TaskDescription = dto.TaskDescription;
+            entry.ActivityCode = dto.ActivityCode;
+            entry.Date = dto.WorkDate.Date;
+            entry.Minutes = HoursToMinutes(dto.HoursSpent);
+            entry.Comment = dto.Comment;
+            entry.DateModified = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync();
         }
-
-        entry.ProjectId = dto.ProjectId;
-        entry.JiraIssueKey = dto.JiraIssueKey;
-        entry.JiraIssueSummary = dto.JiraIssueSummary;
-        entry.TaskDescription = dto.TaskDescription;
-        entry.ActivityCode = dto.ActivityCode;
-        entry.Date = dto.WorkDate.Date;
-        entry.Minutes = HoursToMinutes(dto.HoursSpent);
-        entry.Comment = dto.Comment;
-        entry.DateModified = DateTime.UtcNow;
-
-        await _db.SaveChangesAsync();
         return NoContent();
     }
 

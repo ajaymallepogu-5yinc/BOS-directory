@@ -896,7 +896,10 @@ export default function TimesheetPage() {
       return { ok: false, changeCount: 0 };
     }
 
-    setIsSavingGrid(true);
+    // Only a real Save-button click flips the button's own visible "Saving..." state - auto-save
+    // (skipIncomplete) tracks its own separate in-flight ref instead, so its background saves
+    // never touch what the button displays.
+    if (!options?.skipIncomplete) setIsSavingGrid(true);
     try {
       // A full week across several groups can mean dozens of entries saving at once - firing
       // them all in one Promise.all can outrun the database's own connection limit (the same
@@ -942,7 +945,7 @@ export default function TimesheetPage() {
       }
       return { ok: false, changeCount: 0 };
     } finally {
-      setIsSavingGrid(false);
+      if (!options?.skipIncomplete) setIsSavingGrid(false);
     }
   };
 
@@ -955,17 +958,31 @@ export default function TimesheetPage() {
     refreshNotifications();
   };
 
+  // Read fresh at fire-time via refs rather than listed as effect dependencies below - if
+  // isSavingGrid/isSubmittingWeek were dependencies, the effect would re-run (and re-arm a brand
+  // new timer) every time either one flips back to false after a save finishes, keeping the
+  // debounce cycle going almost continuously regardless of whether the user typed anything new.
+  const isBusyRef = useRef(false);
+  isBusyRef.current = isSavingGrid || isSubmittingWeek;
+  const autoSaveInFlightRef = useRef(false);
+
   // Auto-save: after a short pause with no further changes, silently persist whatever's
   // currently typed - same logic as the Save button, just triggered automatically instead of by
   // a click, skipping (rather than blocking on) whatever isn't ready yet, and without any
   // notifications either way.
   useEffect(() => {
-    if (weekLocked || isSavingGrid || isSubmittingWeek) return;
-    const timer = setTimeout(() => {
-      persistGridChanges({ silent: true, skipIncomplete: true });
+    if (weekLocked) return;
+    const timer = setTimeout(async () => {
+      if (isBusyRef.current || autoSaveInFlightRef.current) return;
+      autoSaveInFlightRef.current = true;
+      try {
+        await persistGridChanges({ silent: true, skipIncomplete: true });
+      } finally {
+        autoSaveInFlightRef.current = false;
+      }
     }, 1800);
     return () => clearTimeout(timer);
-  }, [groups, weekLocked, isSavingGrid, isSubmittingWeek]);
+  }, [groups, weekLocked]);
 
   // Also flush once on unmount (e.g. switching to another module) in case a change was still
   // sitting inside the debounce window above when the user navigated away.
@@ -999,6 +1016,16 @@ export default function TimesheetPage() {
     () => (weekStatus === "Rejected" ? weekEntries.find((e) => e.reviewerComment)?.reviewerComment : undefined),
     [weekStatus, weekEntries]
   );
+
+  // Validates/saves whatever's currently in the grid BEFORE opening the confirmation popup - if
+  // something's actually wrong (a row missing its ticket/type, over the daily cap, etc.),
+  // persistGridChanges already shows that error itself, and the popup never opens with a bogus
+  // total. Only once this succeeds does the popup show a total that's genuinely correct.
+  const handleOpenSubmitConfirm = async () => {
+    const result = await persistGridChanges({ silent: true });
+    if (!result.ok) return;
+    setSubmitWeekConfirmOpen(true);
+  };
 
   const handleConfirmSubmitWeek = async () => {
     setIsSubmittingWeek(true);
@@ -1620,8 +1647,8 @@ export default function TimesheetPage() {
                   {isSavingGrid ? "Saving..." : "Save"}
                 </button>
                 <button
-                  onClick={() => setSubmitWeekConfirmOpen(true)}
-                  disabled={weekGrandTotal <= 0 || isSubmittingWeek}
+                  onClick={handleOpenSubmitConfirm}
+                  disabled={weekGrandTotal <= 0 || isSubmittingWeek || isSavingGrid}
                   className="py-2 px-5 rounded-xl bg-brand text-xs font-semibold text-white hover:bg-brand/90 transition-all shadow-md shadow-brand/10 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Submit Weekly Timesheet
