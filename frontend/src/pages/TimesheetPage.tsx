@@ -757,6 +757,13 @@ export default function TimesheetPage() {
   const dayTotal = (dateIso: string) =>
     groups.reduce((sum, g) => sum + g.rows.reduce((s, r) => s + (parseFloat(r.hours[dateIso]) || 0), 0), 0);
   const weekGrandTotal = weekDateIsos.reduce((sum, d) => sum + dayTotal(d), 0);
+  // Only meaningful once the week has been touched at all - an untouched week is reported
+  // separately (no draft entries at all), not as "missing days".
+  const missingWeekdays = () =>
+    weekDateIsos.filter((d) => {
+      const day = new Date(d + "T00:00:00").getDay();
+      return day !== 0 && day !== 6 && dayTotal(d) <= 0;
+    });
 
   // Shared by the Save button and Submit (Submit auto-saves whatever's in the grid first,
   // so the user never has to press Save separately before submitting).
@@ -1020,6 +1027,15 @@ export default function TimesheetPage() {
   const handleOpenSubmitConfirm = async () => {
     const result = await persistGridChanges({ silent: true });
     if (!result.ok) return;
+
+    if (weekGrandTotal > 0) {
+      const missing = missingWeekdays();
+      if (missing.length > 0) {
+        showNotification("error", `Add hours for ${missing.map(formatDate).join(", ")} before submitting.`);
+        return;
+      }
+    }
+
     setSubmitWeekConfirmOpen(true);
   };
 
@@ -1031,6 +1047,17 @@ export default function TimesheetPage() {
       // error when everything was already saved as drafts beforehand.
       const saveResult = await persistGridChanges({ silent: true });
       if (!saveResult.ok) return;
+
+      // Re-checked here too (not just in handleOpenSubmitConfirm) in case the grid was edited
+      // while the confirm popup was still open.
+      if (weekGrandTotal > 0) {
+        const missing = missingWeekdays();
+        if (missing.length > 0) {
+          showNotification("error", `Add hours for ${missing.map(formatDate).join(", ")} before submitting.`);
+          setSubmitWeekConfirmOpen(false);
+          return;
+        }
+      }
 
       const result = await submitTimesheetWeek(toIsoDate(weekStart));
       showNotification("success", `Submitted ${result.submittedCount} ${result.submittedCount === 1 ? "entry" : "entries"} to your manager.`);

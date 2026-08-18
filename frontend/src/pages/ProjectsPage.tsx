@@ -62,7 +62,12 @@ export default function ProjectsPage() {
   const [isLoadingResources, setIsLoadingResources] = useState(false);
   const [addResourceEmployeeId, setAddResourceEmployeeId] = useState<number | null>(null);
   const [addResourceIsBillable, setAddResourceIsBillable] = useState(true);
-  const [isAddingResource, setIsAddingResource] = useState(false);
+  // Every change in this panel (add, billable toggle, remove) is staged locally and only actually
+  // sent to the server when "Done" is pressed - closing via the X discards all of it instead.
+  const [pendingResources, setPendingResources] = useState<{ employeeId: number; employeeName: string; isBillable: boolean }[]>([]);
+  const [pendingBillableOverrides, setPendingBillableOverrides] = useState<Record<number, boolean>>({});
+  const [pendingRemovals, setPendingRemovals] = useState<Set<number>>(new Set());
+  const [isSavingResources, setIsSavingResources] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -227,6 +232,9 @@ export default function ProjectsPage() {
     setResourcesProject(project);
     setAddResourceEmployeeId(null);
     setAddResourceIsBillable(project.isBillable);
+    setPendingResources([]);
+    setPendingBillableOverrides({});
+    setPendingRemovals(new Set());
     setIsLoadingResources(true);
     try {
       setResources(await fetchProjectResources(project.id));
@@ -245,54 +253,73 @@ export default function ProjectsPage() {
     setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, resourceCount: p.resourceCount + delta } : p)));
   };
 
-  const handleAddResource = async () => {
-    if (!resourcesProject || addResourceEmployeeId === null) return;
-    setIsAddingResource(true);
+  const closeResourcesDiscardingChanges = () => {
+    setPendingResources([]);
+    setPendingBillableOverrides({});
+    setPendingRemovals(new Set());
+    setResourcesProject(null);
+  };
+
+  // Every action below only updates local state - nothing reaches the server until Done commits
+  // it all at once. Closing via the X instead discards everything staged here.
+  const handleAddResource = () => {
+    if (addResourceEmployeeId === null) return;
+    const employee = employees.find((e) => e.id === addResourceEmployeeId);
+    if (!employee) return;
+    setPendingResources((prev) => [...prev, { employeeId: employee.id, employeeName: employee.fullName, isBillable: addResourceIsBillable }]);
+    setAddResourceEmployeeId(null);
+    setAddResourceIsBillable(resourcesProject?.isBillable ?? true);
+  };
+
+  const handleRemovePendingResource = (employeeId: number) => {
+    setPendingResources((prev) => prev.filter((p) => p.employeeId !== employeeId));
+  };
+
+  const handleTogglePendingBillable = (employeeId: number) => {
+    setPendingResources((prev) => prev.map((p) => (p.employeeId === employeeId ? { ...p, isBillable: !p.isBillable } : p)));
+  };
+
+  const handleToggleResourceBillable = (resource: ProjectResource) => {
+    const current = pendingBillableOverrides[resource.id] ?? resource.isBillable;
+    setPendingBillableOverrides((prev) => ({ ...prev, [resource.id]: !current }));
+  };
+
+  const handleRemoveResource = (resource: ProjectResource) => {
+    setPendingRemovals((prev) => new Set(prev).add(resource.id));
+  };
+
+  // Commits every staged change (adds, billable overrides, removals) to the server in one go,
+  // then closes - this is the only path that actually persists anything from this panel.
+  const handleDoneResources = async () => {
+    if (!resourcesProject) return;
+    const billableChanges = Object.entries(pendingBillableOverrides).filter(([id]) => !pendingRemovals.has(Number(id)));
+    const hasChanges = pendingResources.length > 0 || pendingRemovals.size > 0 || billableChanges.length > 0;
+    if (!hasChanges) {
+      setResourcesProject(null);
+      return;
+    }
+
+    setIsSavingResources(true);
     try {
-      const resource = await addProjectResource(resourcesProject.id, addResourceEmployeeId, addResourceIsBillable);
-      setResources((prev) => [...prev, resource].sort((a, b) => a.employeeName.localeCompare(b.employeeName)));
-      bumpResourceCount(resourcesProject.id, 1);
-      setAddResourceEmployeeId(null);
-      setAddResourceIsBillable(resourcesProject.isBillable);
+      for (const [idStr, isBillable] of billableChanges) {
+        await updateProjectResourceBillable(Number(idStr), isBillable);
+      }
+      for (const id of pendingRemovals) {
+        await removeProjectResource(id);
+      }
+      for (const pending of pendingResources) {
+        await addProjectResource(resourcesProject.id, pending.employeeId, pending.isBillable);
+      }
+      bumpResourceCount(resourcesProject.id, pendingResources.length - pendingRemovals.size);
+      setPendingResources([]);
+      setPendingBillableOverrides({});
+      setPendingRemovals(new Set());
+      setResourcesProject(null);
     } catch (err: any) {
-      showNotification("error", err.response?.data?.message || "Failed to add resource.");
+      showNotification("error", err.response?.data?.message || "Failed to save some resource changes. Please try again.");
     } finally {
-      setIsAddingResource(false);
+      setIsSavingResources(false);
     }
-  };
-
-  const handleToggleResourceBillable = async (resource: ProjectResource) => {
-    const nextBillable = !resource.isBillable;
-    setResources((prev) => prev.map((r) => (r.id === resource.id ? { ...r, isBillable: nextBillable } : r)));
-    try {
-      await updateProjectResourceBillable(resource.id, nextBillable);
-    } catch (err: any) {
-      setResources((prev) => prev.map((r) => (r.id === resource.id ? { ...r, isBillable: resource.isBillable } : r)));
-      showNotification("error", err.response?.data?.message || "Failed to update resource.");
-    }
-  };
-
-  const handleRemoveResource = async (resource: ProjectResource) => {
-    setResources((prev) => prev.filter((r) => r.id !== resource.id));
-    if (resourcesProject) bumpResourceCount(resourcesProject.id, -1);
-    try {
-      await removeProjectResource(resource.id);
-    } catch (err: any) {
-      setResources((prev) => [...prev, resource].sort((a, b) => a.employeeName.localeCompare(b.employeeName)));
-      if (resourcesProject) bumpResourceCount(resourcesProject.id, 1);
-      showNotification("error", err.response?.data?.message || "Failed to remove resource.");
-    }
-  };
-
-  const getInitials = (name: string) => {
-    if (!name) return "?";
-    return name
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((w) => w[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
   };
 
   const filteredProjects = projects.filter((p) => {
@@ -465,12 +492,7 @@ export default function ProjectsPage() {
                     <td className="py-4.5 px-6">
                       <div className="flex flex-col gap-1">
                         {project.projectManagerName ? (
-                          <div className="flex items-center gap-2.5">
-                            <div className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold text-white bg-indigo-500 shrink-0">
-                              {getInitials(project.projectManagerName)}
-                            </div>
-                            <span className="font-medium text-ink-800">{project.projectManagerName}</span>
-                          </div>
+                          <span className="font-medium text-ink-800">{project.projectManagerName}</span>
                         ) : (
                           <span className="text-ink-400 italic">Unassigned</span>
                         )}
@@ -756,7 +778,8 @@ export default function ProjectsPage() {
                 <p className="text-[10px] text-ink-500 mt-0.5">Who's staffed on this project, and whether their hours on it bill to the client.</p>
               </div>
               <button
-                onClick={() => setResourcesProject(null)}
+                onClick={closeResourcesDiscardingChanges}
+                title="Close without saving any changes"
                 className="text-ink-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors shrink-0"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -779,33 +802,57 @@ export default function ProjectsPage() {
                 <div className="flex h-24 items-center justify-center">
                   <div className="h-6 w-6 animate-spin rounded-full border-4 border-ink-200 border-t-brand" />
                 </div>
-              ) : resources.length === 0 ? (
+              ) : resources.filter((r) => !pendingRemovals.has(r.id)).length === 0 && pendingResources.length === 0 ? (
                 <p className="text-xs text-ink-400 italic text-center py-6">No resources added yet.</p>
               ) : (
                 <div className="rounded-xl border border-ink-150 divide-y divide-ink-100 mb-4">
-                  {resources.map((resource) => (
-                    <div key={resource.id} className="flex items-center justify-between px-3 py-2.5">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold text-white bg-indigo-500 shrink-0">
-                          {getInitials(resource.employeeName)}
+                  {resources.filter((r) => !pendingRemovals.has(r.id)).map((resource) => {
+                    const effectiveBillable = pendingBillableOverrides[resource.id] ?? resource.isBillable;
+                    return (
+                      <div key={resource.id} className="flex items-center justify-between px-3 py-2.5">
+                        <span className="text-xs font-medium text-ink-800 truncate min-w-0">{resource.employeeName}</span>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="text-[10px] font-bold text-ink-500">{effectiveBillable ? "Billable" : "Non-billable"}</span>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={effectiveBillable}
+                              onChange={() => handleToggleResourceBillable(resource)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-ink-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-ink-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                          </label>
+                          <button
+                            onClick={() => handleRemoveResource(resource)}
+                            className="text-ink-400 hover:text-rose-600 transition-colors"
+                            title="Remove resource"
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
                         </div>
-                        <span className="text-xs font-medium text-ink-800 truncate">{resource.employeeName}</span>
                       </div>
+                    );
+                  })}
+                  {pendingResources.map((pending) => (
+                    <div key={pending.employeeId} className="flex items-center justify-between px-3 py-2.5">
+                      <span className="text-xs font-medium text-ink-800 truncate min-w-0">{pending.employeeName}</span>
                       <div className="flex items-center gap-3 shrink-0">
-                        <span className="text-[10px] font-bold text-ink-500">{resource.isBillable ? "Billable" : "Non-billable"}</span>
+                        <span className="text-[10px] font-bold text-ink-500">{pending.isBillable ? "Billable" : "Non-billable"}</span>
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={resource.isBillable}
-                            onChange={() => handleToggleResourceBillable(resource)}
+                            checked={pending.isBillable}
+                            onChange={() => handleTogglePendingBillable(pending.employeeId)}
                             className="sr-only peer"
                           />
                           <div className="w-9 h-5 bg-ink-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-ink-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
                         </label>
                         <button
-                          onClick={() => handleRemoveResource(resource)}
+                          onClick={() => handleRemovePendingResource(pending.employeeId)}
                           className="text-ink-400 hover:text-rose-600 transition-colors"
-                          title="Remove resource"
+                          title="Remove"
                         >
                           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -824,7 +871,7 @@ export default function ProjectsPage() {
                   value={addResourceEmployeeId}
                   onChange={(val) => setAddResourceEmployeeId(val !== null ? Number(val) : null)}
                   options={employees
-                    .filter((e) => !resources.some((r) => r.employeeId === e.id))
+                    .filter((e) => !resources.some((r) => r.employeeId === e.id) && !pendingResources.some((p) => p.employeeId === e.id))
                     .map((e) => ({ value: e.id, label: `${e.fullName} (${e.title})` }))}
                   emptyLabel="Search an employee to add..."
                 />
@@ -840,19 +887,25 @@ export default function ProjectsPage() {
               </label>
               <button
                 onClick={handleAddResource}
-                disabled={addResourceEmployeeId === null || isAddingResource}
+                disabled={addResourceEmployeeId === null}
                 className="py-2 px-3 rounded-xl bg-brand text-xs font-semibold text-white hover:bg-brand/90 transition-all disabled:opacity-50 shrink-0"
               >
-                {isAddingResource ? "Adding..." : "+ Add"}
+                + Add
               </button>
             </div>
 
-            <div className="flex justify-end pt-4 mt-3 border-t border-ink-150 shrink-0">
+            <div className="flex items-center justify-between pt-4 mt-3 border-t border-ink-150 shrink-0">
+              <p className="text-[10px] text-ink-400">
+                {pendingResources.length + pendingRemovals.size + Object.keys(pendingBillableOverrides).length > 0
+                  ? "You have unsaved changes — press Done to apply them."
+                  : ""}
+              </p>
               <button
-                onClick={() => setResourcesProject(null)}
-                className="py-2 px-4 rounded-xl bg-brand text-xs font-semibold text-white hover:bg-brand/90 transition-all shadow-md shadow-brand/10"
+                onClick={handleDoneResources}
+                disabled={isSavingResources}
+                className="py-2 px-4 rounded-xl bg-brand text-xs font-semibold text-white hover:bg-brand/90 transition-all shadow-md shadow-brand/10 disabled:opacity-50"
               >
-                Done
+                {isSavingResources ? "Saving..." : "Done"}
               </button>
             </div>
           </div>
