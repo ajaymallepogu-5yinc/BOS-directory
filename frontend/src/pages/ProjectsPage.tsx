@@ -11,6 +11,10 @@ import {
   syncJiraProjects
 } from "../api/projectApi";
 import type { Project, ProjectFormValues } from "../api/projectApi";
+import { fetchClients, findOrCreateClient } from "../api/clientApi";
+import type { Client } from "../api/clientApi";
+import { fetchProjectResources, addProjectResource, updateProjectResourceBillable, removeProjectResource } from "../api/projectResourceApi";
+import type { ProjectResource } from "../api/projectResourceApi";
 import type { Employee } from "../api/types";
 
 export default function ProjectsPage() {
@@ -19,10 +23,15 @@ export default function ProjectsPage() {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+
+  // Filters: status (null = All) and client (null = All)
+  const [filterStatus, setFilterStatus] = useState<"active" | "inactive" | null>(null);
+  const [filterClientId, setFilterClientId] = useState<number | null>(null);
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -33,12 +42,27 @@ export default function ProjectsPage() {
   // Form states
   const [formName, setFormName] = useState("");
   const [formManagerId, setFormManagerId] = useState<number | null>(null);
+  const [formClientId, setFormClientId] = useState<number | null>(null);
   const [formIsBillable, setFormIsBillable] = useState(false);
+  const [formIsActive, setFormIsActive] = useState(true);
   const [formJiraId, setFormJiraId] = useState("");
+
+  // Inline "type a new client name to create it" affordance in the modal
+  const [isAddingClient, setIsAddingClient] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+  const [isCreatingClient, setIsCreatingClient] = useState(false);
 
   // Confirm delete states
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<number | null>(null);
+
+  // Manage Resources panel
+  const [resourcesProject, setResourcesProject] = useState<Project | null>(null);
+  const [resources, setResources] = useState<ProjectResource[]>([]);
+  const [isLoadingResources, setIsLoadingResources] = useState(false);
+  const [addResourceEmployeeId, setAddResourceEmployeeId] = useState<number | null>(null);
+  const [addResourceIsBillable, setAddResourceIsBillable] = useState(true);
+  const [isAddingResource, setIsAddingResource] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -48,12 +72,14 @@ export default function ProjectsPage() {
     setLoading(true);
     setErrorMsg("");
     try {
-      const [projList, empList] = await Promise.all([
+      const [projList, empList, clientList] = await Promise.all([
         fetchProjects(),
-        fetchEmployees()
+        fetchEmployees(),
+        fetchClients()
       ]);
       setProjects(projList);
       setEmployees(empList);
+      setClients(clientList);
     } catch (err: any) {
       setErrorMsg(err.response?.data?.message || "Failed to load projects data.");
     } finally {
@@ -86,8 +112,12 @@ export default function ProjectsPage() {
     setEditingProject(null);
     setFormName("");
     setFormManagerId(null);
+    setFormClientId(null);
     setFormIsBillable(false);
+    setFormIsActive(true);
     setFormJiraId("");
+    setIsAddingClient(false);
+    setNewClientName("");
     setIsModalOpen(true);
   };
 
@@ -95,9 +125,30 @@ export default function ProjectsPage() {
     setEditingProject(project);
     setFormName(project.name);
     setFormManagerId(project.projectManagerId || null);
+    setFormClientId(project.clientId || null);
     setFormIsBillable(project.isBillable);
+    setFormIsActive(project.isActive);
     setFormJiraId(project.jiraBoardIds || "");
+    setIsAddingClient(false);
+    setNewClientName("");
     setIsModalOpen(true);
+  };
+
+  const handleCreateClient = async () => {
+    const name = newClientName.trim();
+    if (!name) return;
+    setIsCreatingClient(true);
+    try {
+      const client = await findOrCreateClient(name);
+      setClients((prev) => (prev.some((c) => c.id === client.id) ? prev : [...prev, client].sort((a, b) => a.name.localeCompare(b.name))));
+      setFormClientId(client.id);
+      setIsAddingClient(false);
+      setNewClientName("");
+    } catch (err: any) {
+      showNotification("error", err.response?.data?.message || "Failed to add client.");
+    } finally {
+      setIsCreatingClient(false);
+    }
   };
 
   const handleFormSubmit = async (e: React.FormEvent) => {
@@ -112,7 +163,9 @@ export default function ProjectsPage() {
       const values: ProjectFormValues = {
         name: formName.trim(),
         projectManagerId: formManagerId,
+        clientId: formClientId,
         isBillable: formIsBillable,
+        isActive: formIsActive,
         jiraBoardIds: formJiraId.trim() || undefined
       };
 
@@ -170,6 +223,67 @@ export default function ProjectsPage() {
     }
   };
 
+  const handleOpenResources = async (project: Project) => {
+    setResourcesProject(project);
+    setAddResourceEmployeeId(null);
+    setAddResourceIsBillable(project.isBillable);
+    setIsLoadingResources(true);
+    try {
+      setResources(await fetchProjectResources(project.id));
+    } catch (err: any) {
+      showNotification("error", err.response?.data?.message || "Failed to load resources.");
+    } finally {
+      setIsLoadingResources(false);
+    }
+  };
+
+  // The table's "N resources" badge reads project.resourceCount from the `projects` list, which
+  // is a separate copy from `resources` (the modal's own list) - without this, adding/removing a
+  // resource updates the modal correctly but leaves the table showing a stale count until the
+  // next full reload.
+  const bumpResourceCount = (projectId: number, delta: number) => {
+    setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, resourceCount: p.resourceCount + delta } : p)));
+  };
+
+  const handleAddResource = async () => {
+    if (!resourcesProject || addResourceEmployeeId === null) return;
+    setIsAddingResource(true);
+    try {
+      const resource = await addProjectResource(resourcesProject.id, addResourceEmployeeId, addResourceIsBillable);
+      setResources((prev) => [...prev, resource].sort((a, b) => a.employeeName.localeCompare(b.employeeName)));
+      bumpResourceCount(resourcesProject.id, 1);
+      setAddResourceEmployeeId(null);
+      setAddResourceIsBillable(resourcesProject.isBillable);
+    } catch (err: any) {
+      showNotification("error", err.response?.data?.message || "Failed to add resource.");
+    } finally {
+      setIsAddingResource(false);
+    }
+  };
+
+  const handleToggleResourceBillable = async (resource: ProjectResource) => {
+    const nextBillable = !resource.isBillable;
+    setResources((prev) => prev.map((r) => (r.id === resource.id ? { ...r, isBillable: nextBillable } : r)));
+    try {
+      await updateProjectResourceBillable(resource.id, nextBillable);
+    } catch (err: any) {
+      setResources((prev) => prev.map((r) => (r.id === resource.id ? { ...r, isBillable: resource.isBillable } : r)));
+      showNotification("error", err.response?.data?.message || "Failed to update resource.");
+    }
+  };
+
+  const handleRemoveResource = async (resource: ProjectResource) => {
+    setResources((prev) => prev.filter((r) => r.id !== resource.id));
+    if (resourcesProject) bumpResourceCount(resourcesProject.id, -1);
+    try {
+      await removeProjectResource(resource.id);
+    } catch (err: any) {
+      setResources((prev) => [...prev, resource].sort((a, b) => a.employeeName.localeCompare(b.employeeName)));
+      if (resourcesProject) bumpResourceCount(resourcesProject.id, 1);
+      showNotification("error", err.response?.data?.message || "Failed to remove resource.");
+    }
+  };
+
   const getInitials = (name: string) => {
     if (!name) return "?";
     return name
@@ -183,18 +297,20 @@ export default function ProjectsPage() {
 
   const filteredProjects = projects.filter((p) => {
     const term = searchTerm.toLowerCase();
-    return (
+    const matchesSearch =
       p.name.toLowerCase().includes(term) ||
       (p.projectManagerName && p.projectManagerName.toLowerCase().includes(term)) ||
-      (p.jiraBoardIds && p.jiraBoardIds.toLowerCase().includes(term))
-    );
+      (p.jiraBoardIds && p.jiraBoardIds.toLowerCase().includes(term));
+    const matchesStatus = filterStatus === null || (filterStatus === "active" ? p.isActive : !p.isActive);
+    const matchesClient = filterClientId === null || p.clientId === filterClientId;
+    return matchesSearch && matchesStatus && matchesClient;
   });
 
   return (
     <div className="h-full flex flex-col bg-ink-50/20 p-8 overflow-hidden">
       {/* Toast Notifications */}
       {successMsg && (
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 text-xs font-semibold shadow-lg animate-fade-in">
+        <div className="fixed top-4 right-4 z-[60] flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 text-xs font-semibold shadow-lg animate-fade-in">
           <svg className="h-4 w-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
           </svg>
@@ -202,7 +318,7 @@ export default function ProjectsPage() {
         </div>
       )}
       {errorMsg && (
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 text-xs font-semibold shadow-lg animate-fade-in">
+        <div className="fixed top-4 right-4 z-[60] flex items-center gap-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 text-xs font-semibold shadow-lg animate-fade-in">
           <svg className="h-4 w-4 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
@@ -244,24 +360,68 @@ export default function ProjectsPage() {
       </div>
 
       {/* Search and filter controls */}
-      <div className="mb-6 flex max-w-md items-center gap-2 bg-white rounded-xl border border-ink-150 px-3.5 py-2.5 shadow-sm">
-        <svg className="h-5 w-5 shrink-0 text-ink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-        <input
-          type="text"
-          placeholder="Search by project name, manager or Jira ID..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="flex-1 text-xs text-ink-800 placeholder-ink-400 focus:outline-none"
-        />
-        {searchTerm && (
-          <button onClick={() => setSearchTerm("")} className="text-ink-400 hover:text-ink-600">
-            <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex max-w-md flex-1 min-w-[240px] items-center gap-2 bg-white rounded-xl border border-ink-150 px-3.5 py-2.5 shadow-sm">
+          <svg className="h-5 w-5 shrink-0 text-ink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search by project name, manager or Jira ID..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="flex-1 text-xs text-ink-800 placeholder-ink-400 focus:outline-none"
+          />
+          {searchTerm && (
+            <button onClick={() => setSearchTerm("")} className="text-ink-400 hover:text-ink-600">
+              <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 text-[10px] font-bold text-ink-400 uppercase tracking-wide shrink-0">
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h18M6 8h12M9 12h6M11 16h2" />
             </svg>
-          </button>
-        )}
+            Filter
+          </div>
+          <div className="w-36">
+            <CustomSelect
+              value={filterStatus}
+              onChange={(val) => setFilterStatus(val as "active" | "inactive" | null)}
+              options={[
+                { value: "active", label: "Status: Active" },
+                { value: "inactive", label: "Status: Inactive" }
+              ]}
+              emptyLabel="Status: All"
+            />
+          </div>
+          <div className="w-44">
+            <CustomSelect
+              value={filterClientId}
+              onChange={(val) => setFilterClientId(val !== null ? Number(val) : null)}
+              options={clients.map((c) => ({ value: c.id, label: c.name }))}
+              emptyLabel="Client: All"
+            />
+          </div>
+          {(filterStatus !== null || filterClientId !== null) && (
+            <button
+              onClick={() => {
+                setFilterStatus(null);
+                setFilterClientId(null);
+              }}
+              className="flex items-center gap-1 text-[10px] font-bold text-ink-400 hover:text-rose-600 shrink-0"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              Clear filters
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Table / List - the only part of the page that scrolls */}
@@ -286,10 +446,13 @@ export default function ProjectsPage() {
         <div className="h-full overflow-auto scrollbar-none rounded-2xl border border-ink-150 bg-white shadow-sm">
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 z-10">
-                <tr className="border-b border-ink-150 bg-ink-50 text-[10px] font-bold uppercase tracking-wider text-ink-500">
+                <tr className="border-b border-ink-150 bg-ink-50 text-[10px] font-bold uppercase tracking-wider text-ink-500 whitespace-nowrap">
                   <th className="py-3 px-6">Project Name</th>
                   <th className="py-3 px-6">Project Manager</th>
+                  <th className="py-3 px-6">Client</th>
                   <th className="py-3 px-6">Billing Type</th>
+                  <th className="py-3 px-6">Resources</th>
+                  <th className="py-3 px-6">Status</th>
                   <th className="py-3 px-6">Jira Board(s)</th>
                   <th className="py-3 px-6">Created On</th>
                   {isAdmin && <th className="py-3 px-6 text-right">Actions</th>}
@@ -314,15 +477,48 @@ export default function ProjectsPage() {
                       </div>
                     </td>
                     <td className="py-4.5 px-6">
+                      {project.clientName ? (
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-brand/10 px-2 py-1 text-[10px] font-bold text-brand border border-brand/20">
+                          {project.clientName}
+                        </span>
+                      ) : (
+                        <span className="text-ink-400 italic whitespace-nowrap">No client</span>
+                      )}
+                    </td>
+                    <td className="py-4.5 px-6">
                       {project.isBillable ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 border border-emerald-150">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 border border-emerald-150">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
                           Billable
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600 border border-slate-200">
-                          <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600 border border-slate-200">
+                          <span className="h-1.5 w-1.5 rounded-full bg-slate-400 shrink-0" />
                           Internal (Non-billable)
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-4.5 px-6">
+                      <button
+                        onClick={() => handleOpenResources(project)}
+                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-ink-100 px-2.5 py-1 text-[10px] font-bold text-ink-600 hover:bg-ink-200 transition-colors"
+                      >
+                        {project.resourceCount} {project.resourceCount === 1 ? "resource" : "resources"}
+                        <svg className="h-3 w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    </td>
+                    <td className="py-4.5 px-6">
+                      {project.isActive ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 border border-emerald-150">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          Active
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-600 border border-rose-150">
+                          <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+                          Inactive
                         </span>
                       )}
                     </td>
@@ -423,6 +619,67 @@ export default function ProjectsPage() {
                 />
               </div>
 
+              {/* Client */}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-ink-500 uppercase tracking-wide">Client</label>
+                  {!isAddingClient && (
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingClient(true)}
+                      className="text-[10px] font-bold text-brand hover:underline"
+                    >
+                      + New client
+                    </button>
+                  )}
+                </div>
+                {isAddingClient ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="Client name"
+                      value={newClientName}
+                      onChange={(e) => setNewClientName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleCreateClient();
+                        }
+                      }}
+                      className="flex-1 rounded-xl border border-ink-200 px-3.5 py-2 text-xs text-ink-800 placeholder-ink-400 focus:border-brand focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCreateClient}
+                      disabled={isCreatingClient || !newClientName.trim()}
+                      className="py-2 px-3 rounded-xl bg-brand text-xs font-semibold text-white hover:bg-brand/90 transition-all disabled:opacity-50"
+                    >
+                      {isCreatingClient ? "Adding..." : "Add"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAddingClient(false);
+                        setNewClientName("");
+                      }}
+                      className="text-ink-400 hover:text-ink-600 p-1"
+                    >
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
+                  <CustomSelect
+                    value={formClientId}
+                    onChange={(val) => setFormClientId(val !== null ? Number(val) : null)}
+                    options={clients.map((c) => ({ value: c.id, label: c.name }))}
+                    emptyLabel="No client"
+                  />
+                )}
+              </div>
+
               {/* Is Billable Toggle */}
               <div className="flex items-center justify-between py-2 border-t border-b border-ink-100 my-1">
                 <div>
@@ -434,6 +691,23 @@ export default function ProjectsPage() {
                     type="checkbox"
                     checked={formIsBillable}
                     onChange={(e) => setFormIsBillable(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-ink-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-ink-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                </label>
+              </div>
+
+              {/* Is Active Toggle */}
+              <div className="flex items-center justify-between py-2 border-t border-b border-ink-100 my-1">
+                <div>
+                  <p className="text-xs font-bold text-ink-800">Active Project</p>
+                  <p className="text-[10px] text-ink-400 mt-0.5">Inactive projects won't show up in the timesheet's project picker.</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formIsActive}
+                    onChange={(e) => setFormIsActive(e.target.checked)}
                     className="sr-only peer"
                   />
                   <div className="w-9 h-5 bg-ink-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-ink-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
@@ -471,6 +745,119 @@ export default function ProjectsPage() {
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteConfirmOpen(false)}
       />
+
+      {/* Manage Resources panel - who's staffed on this project, and whether their hours bill */}
+      {resourcesProject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-900/40 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-lg rounded-2xl border border-ink-150 bg-white p-6 shadow-xl animate-slide-up max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-ink-150 pb-4 mb-4 shrink-0">
+              <div>
+                <h2 className="text-sm font-black text-ink-900">{resourcesProject.name} — Resources</h2>
+                <p className="text-[10px] text-ink-500 mt-0.5">Who's staffed on this project, and whether their hours on it bill to the client.</p>
+              </div>
+              <button
+                onClick={() => setResourcesProject(null)}
+                className="text-ink-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors shrink-0"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-ink-50 border border-ink-100 mb-4 shrink-0">
+              <div>
+                <p className="text-xs font-bold text-ink-800">
+                  Project default: {resourcesProject.isBillable ? "Billable" : "Non-billable"}
+                </p>
+                <p className="text-[10px] text-ink-400 mt-0.5">New resources start from this; each person's toggle below can still differ.</p>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-auto scrollbar-none">
+              {isLoadingResources ? (
+                <div className="flex h-24 items-center justify-center">
+                  <div className="h-6 w-6 animate-spin rounded-full border-4 border-ink-200 border-t-brand" />
+                </div>
+              ) : resources.length === 0 ? (
+                <p className="text-xs text-ink-400 italic text-center py-6">No resources added yet.</p>
+              ) : (
+                <div className="rounded-xl border border-ink-150 divide-y divide-ink-100 mb-4">
+                  {resources.map((resource) => (
+                    <div key={resource.id} className="flex items-center justify-between px-3 py-2.5">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold text-white bg-indigo-500 shrink-0">
+                          {getInitials(resource.employeeName)}
+                        </div>
+                        <span className="text-xs font-medium text-ink-800 truncate">{resource.employeeName}</span>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-[10px] font-bold text-ink-500">{resource.isBillable ? "Billable" : "Non-billable"}</span>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={resource.isBillable}
+                            onChange={() => handleToggleResourceBillable(resource)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-ink-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-ink-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                        </label>
+                        <button
+                          onClick={() => handleRemoveResource(resource)}
+                          className="text-ink-400 hover:text-rose-600 transition-colors"
+                          title="Remove resource"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 pt-3 border-t border-ink-150 shrink-0">
+              <div className="flex-1">
+                <CustomSelect
+                  value={addResourceEmployeeId}
+                  onChange={(val) => setAddResourceEmployeeId(val !== null ? Number(val) : null)}
+                  options={employees
+                    .filter((e) => !resources.some((r) => r.employeeId === e.id))
+                    .map((e) => ({ value: e.id, label: `${e.fullName} (${e.title})` }))}
+                  emptyLabel="Search an employee to add..."
+                />
+              </div>
+              <label className="flex items-center gap-1.5 text-[10px] font-bold text-ink-500 shrink-0">
+                <input
+                  type="checkbox"
+                  checked={addResourceIsBillable}
+                  onChange={(e) => setAddResourceIsBillable(e.target.checked)}
+                  className="rounded border-ink-300 text-brand focus:ring-brand"
+                />
+                Billable
+              </label>
+              <button
+                onClick={handleAddResource}
+                disabled={addResourceEmployeeId === null || isAddingResource}
+                className="py-2 px-3 rounded-xl bg-brand text-xs font-semibold text-white hover:bg-brand/90 transition-all disabled:opacity-50 shrink-0"
+              >
+                {isAddingResource ? "Adding..." : "+ Add"}
+              </button>
+            </div>
+
+            <div className="flex justify-end pt-4 mt-3 border-t border-ink-150 shrink-0">
+              <button
+                onClick={() => setResourcesProject(null)}
+                className="py-2 px-4 rounded-xl bg-brand text-xs font-semibold text-white hover:bg-brand/90 transition-all shadow-md shadow-brand/10"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

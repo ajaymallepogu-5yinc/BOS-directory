@@ -24,7 +24,8 @@ export const ACTIVITY_CODES: ActivityCode[] = [
   { code: "SLK", type: "Slack", explanation: "Reverting to team on slack messages - only for PM and above" },
   { code: "DES", type: "Design", explanation: "Designing on various work items" },
   { code: "KTS", type: "Keka Timesheets", explanation: "Keka Timesheets, Attendance, Leaves, WFH - review/approval" },
-  { code: "SAM", type: "Sales & Marketing", explanation: "Tasks related to Sales and Marketing" }
+  { code: "SAM", type: "Sales & Marketing", explanation: "Tasks related to Sales and Marketing" },
+  { code: "LVE", type: "Leave", explanation: "Approved leave, vacation, sick day, or other time off" }
 ];
 
 // "CODE — Full Name" so the code is never shown on its own without its meaning next to it.

@@ -45,6 +45,8 @@ public class AppDbContext : IdentityDbContext<Employee, IdentityRole<int>, int>
     public DbSet<OrgReporting> OrgReportings => Set<OrgReporting>();
     public DbSet<EmpDepartment> EmpDepartments => Set<EmpDepartment>();
     public DbSet<Project> Projects => Set<Project>();
+    public DbSet<Client> Clients => Set<Client>();
+    public DbSet<ProjectResource> ProjectResources => Set<ProjectResource>();
     public DbSet<Timesheet> Timesheets => Set<Timesheet>();
     public DbSet<TimesheetEntry> TimesheetEntries => Set<TimesheetEntry>();
     public DbSet<TimesheetReviewLog> TimesheetReviewLogs => Set<TimesheetReviewLog>();
@@ -84,6 +86,12 @@ public class AppDbContext : IdentityDbContext<Employee, IdentityRole<int>, int>
         modelBuilder.Entity<Department>().HasQueryFilter(d => !d.IsDeleted);
         modelBuilder.Entity<OrgReporting>().HasQueryFilter(o => !o.IsDeleted);
         modelBuilder.Entity<Project>().HasQueryFilter(p => !p.IsDeleted);
+        modelBuilder.Entity<Client>().HasQueryFilter(c => !c.IsDeleted);
+        modelBuilder.Entity<ProjectResource>().HasQueryFilter(r => !r.IsDeleted);
+
+        modelBuilder.Entity<Client>()
+            .HasIndex(c => c.Name)
+            .IsUnique();
 
         modelBuilder.Entity<OrgReporting>(entity =>
         {
@@ -104,6 +112,27 @@ public class AppDbContext : IdentityDbContext<Employee, IdentityRole<int>, int>
                 .WithMany()
                 .HasForeignKey(p => p.ProjectManagerId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(p => p.Client)
+                .WithMany(c => c.Projects)
+                .HasForeignKey(p => p.ClientId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ProjectResource>(entity =>
+        {
+            entity.HasOne(r => r.Project)
+                .WithMany()
+                .HasForeignKey(r => r.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict (not Cascade): Employee already has other cascading paths, so a second
+            // cascading FK to AspNetUsers triggers SQL Server's "multiple cascade paths" error -
+            // same fix already applied to OrgReporting/Timesheet/TimesheetReviewLog.
+            entity.HasOne(r => r.Employee)
+                .WithMany()
+                .HasForeignKey(r => r.EmployeeId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Timesheet>(entity =>

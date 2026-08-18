@@ -524,12 +524,6 @@ export default function TimesheetPage() {
   // so it's already the real, stable identity of a row.
   const [copySelection, setCopySelection] = useState<Record<string, Set<number>>>({});
 
-  // Activity-code legend popover, toggled from the "?" icon next to the column header - fixed
-  // position (anchored to the icon's actual screen rect) instead of absolute, same reason as the
-  // per-cell comment popup below: absolute would get clipped by the grid's overflow-x wrapper.
-  const [legendPos, setLegendPos] = useState<{ top: number; left: number } | null>(null);
-  const legendButtonRef = useRef<HTMLButtonElement>(null);
-
   useEffect(() => {
     loadAll();
   }, []);
@@ -1012,8 +1006,10 @@ export default function TimesheetPage() {
     return summary;
   }, [weekEntries]);
 
+  // A manager's comment can be left on an Approve just as easily as a Reject - showing it only
+  // for Rejected silently dropped anything written alongside an Approval.
   const weekReviewerComment = useMemo(
-    () => (weekStatus === "Rejected" ? weekEntries.find((e) => e.reviewerComment)?.reviewerComment : undefined),
+    () => (weekStatus === "Rejected" || weekStatus === "Approved" ? weekEntries.find((e) => e.reviewerComment)?.reviewerComment : undefined),
     [weekStatus, weekEntries]
   );
 
@@ -1061,8 +1057,22 @@ export default function TimesheetPage() {
     return `${startStr} – ${endStr}`;
   };
 
-  const projectOptions: DropdownOption[] = projects.map((p) => ({ value: String(p.id), label: p.name }));
+  // Inactive projects are excluded from new selections, but NOT from projectName() below - a
+  // project already logged against in a past week should still show its real name instead of
+  // going blank just because it was deactivated since then.
+  const projectOptions: DropdownOption[] = projects.filter((p) => p.isActive).map((p) => ({ value: String(p.id), label: p.name }));
   const projectName = (id: number | null) => (id == null ? null : projects.find((p) => p.id === id)?.name);
+
+  // A group already pointed at an inactive project (picked back when it was still active) must
+  // still show up as selected in its own dropdown, not go blank just because it's no longer in
+  // projectOptions - append it as a one-off option if it's not already in the active list.
+  const projectOptionsFor = (currentProjectId: number | null): DropdownOption[] => {
+    if (currentProjectId == null || projectOptions.some((o) => o.value === String(currentProjectId))) {
+      return projectOptions;
+    }
+    const inactiveName = projectName(currentProjectId);
+    return inactiveName ? [...projectOptions, { value: String(currentProjectId), label: `${inactiveName} (Inactive)` }] : projectOptions;
+  };
 
   // --- Copy From Another Week ---
 
@@ -1242,7 +1252,7 @@ export default function TimesheetPage() {
   return (
     <div className="h-full flex flex-col bg-ink-50/20 p-8 overflow-y-auto scrollbar-none">
       {successMsg && (
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 text-xs font-semibold shadow-lg animate-fade-in">
+        <div className="fixed top-4 right-4 z-[60] flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 text-xs font-semibold shadow-lg animate-fade-in">
           <svg className="h-4 w-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
           </svg>
@@ -1250,7 +1260,7 @@ export default function TimesheetPage() {
         </div>
       )}
       {errorMsg && (
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 text-xs font-semibold shadow-lg animate-fade-in max-w-md">
+        <div className="fixed top-4 right-4 z-[60] flex items-center gap-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 text-xs font-semibold shadow-lg animate-fade-in max-w-md">
           <svg className="h-4 w-4 text-rose-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
@@ -1326,6 +1336,7 @@ export default function TimesheetPage() {
                   <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-150">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                     Approved
+                    {weekReviewerComment ? ` · "${weekReviewerComment}"` : ""}
                   </span>
                 )}
                 {weekStatusSummary.Rejected && (
@@ -1345,27 +1356,7 @@ export default function TimesheetPage() {
               <table className="w-full text-left border-collapse min-w-[900px]">
                 <thead className="sticky top-0 z-10">
                   <tr className="border-b border-ink-150 bg-ink-50 text-[10px] font-bold uppercase tracking-wider text-ink-500">
-                    <th className="py-3 px-4 w-72">
-                      <div className="flex items-center gap-1.5">
-                        <span>What</span>
-                        <button
-                          ref={legendButtonRef}
-                          type="button"
-                          onClick={() => {
-                            if (legendPos) {
-                              setLegendPos(null);
-                              return;
-                            }
-                            const rect = legendButtonRef.current!.getBoundingClientRect();
-                            setLegendPos({ top: rect.bottom + 6, left: rect.left });
-                          }}
-                          title="What do the activity type codes mean?"
-                          className="h-4 w-4 rounded-full border border-ink-300 text-ink-400 hover:text-brand hover:border-brand flex items-center justify-center text-[9px] font-black normal-case shrink-0"
-                        >
-                          ?
-                        </button>
-                      </div>
-                    </th>
+                    <th className="py-3 px-4 w-72">Work Items</th>
                     {displayDays.map((d) => {
                       const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                       return (
@@ -1392,7 +1383,7 @@ export default function TimesheetPage() {
                             <Dropdown
                               value={group.projectId ? String(group.projectId) : ""}
                               onChange={(v) => updateGroupProject(group.id, v ? Number(v) : null)}
-                              options={projectOptions}
+                              options={projectOptionsFor(group.projectId)}
                               placeholder="Select a project…"
                               disabled={weekLocked}
                               searchable
@@ -1658,31 +1649,6 @@ export default function TimesheetPage() {
           </div>
 
         </div>
-      )}
-
-      {/* Activity-code legend popup - fixed position anchored to the "?" icon's screen rect,
-          rendered at the top level for the same reason as the comment popup below. */}
-      {legendPos && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setLegendPos(null)} />
-          <div
-            className="fixed z-50 w-72 max-h-96 overflow-auto scrollbar-none rounded-xl border border-ink-150 bg-white shadow-lg p-3 animate-fade-in"
-            style={{ top: legendPos.top, left: legendPos.left }}
-          >
-            <p className="text-[10px] font-bold text-ink-800 mb-2 uppercase tracking-wide">Activity type codes</p>
-            <div className="divide-y divide-ink-100">
-              {ACTIVITY_CODES.map((a) => (
-                <div key={a.code} className="py-1.5">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="font-mono font-bold text-brand text-[10px]">{a.code}</span>
-                    {a.type && <span className="text-[10px] font-bold text-ink-700">{a.type}</span>}
-                  </div>
-                  <p className="text-[10px] font-normal text-ink-500 mt-0.5">{a.explanation}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
       )}
 
       {/* Per-cell comment popup - rendered at the top level (fixed position) so it's never

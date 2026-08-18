@@ -35,12 +35,22 @@ public class ProjectsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<List<ProjectDto>>> GetAll()
+    public async Task<ActionResult<List<ProjectDto>>> GetAll([FromQuery] bool? isActive = null, [FromQuery] int? clientId = null)
     {
-        var list = await _db.Projects
+        var query = _db.Projects
             .Include(p => p.ProjectManager)
-            .OrderByDescending(p => p.CreatedAt)
-            .ToListAsync();
+            .Include(p => p.Client)
+            .AsQueryable();
+
+        if (isActive.HasValue) query = query.Where(p => p.IsActive == isActive.Value);
+        if (clientId.HasValue) query = query.Where(p => p.ClientId == clientId.Value);
+
+        var list = await query.OrderByDescending(p => p.CreatedAt).ToListAsync();
+
+        var resourceCounts = await _db.ProjectResources
+            .GroupBy(r => r.ProjectId)
+            .Select(g => new { ProjectId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.ProjectId, x => x.Count);
 
         var result = list.Select(p => new ProjectDto
         {
@@ -48,7 +58,11 @@ public class ProjectsController : ControllerBase
             Name = p.Name,
             ProjectManagerId = p.ProjectManagerId,
             ProjectManagerName = p.ProjectManager?.FullName,
+            ClientId = p.ClientId,
+            ClientName = p.Client?.Name,
             IsBillable = p.IsBillable,
+            IsActive = p.IsActive,
+            ResourceCount = resourceCounts.GetValueOrDefault(p.Id),
             JiraBoardIds = p.JiraBoardIds,
             JiraProjectKey = p.JiraProjectKey,
             CreatedAt = p.CreatedAt,
@@ -68,7 +82,9 @@ public class ProjectsController : ControllerBase
         {
             Name = dto.Name,
             ProjectManagerId = dto.ProjectManagerId,
+            ClientId = dto.ClientId,
             IsBillable = dto.IsBillable,
+            IsActive = dto.IsActive,
             JiraBoardIds = dto.JiraBoardIds,
             CreatedAt = DateTime.UtcNow,
             CreatedBy = username
@@ -77,10 +93,14 @@ public class ProjectsController : ControllerBase
         _db.Projects.Add(project);
         await _db.SaveChangesAsync();
 
-        // Load manager name for returning
+        // Load manager/client names for returning
         if (project.ProjectManagerId.HasValue)
         {
             project.ProjectManager = await _db.Users.FirstOrDefaultAsync(u => u.Id == project.ProjectManagerId.Value);
+        }
+        if (project.ClientId.HasValue)
+        {
+            project.Client = await _db.Clients.FirstOrDefaultAsync(c => c.Id == project.ClientId.Value);
         }
 
         return CreatedAtAction(nameof(GetAll), new {}, new ProjectDto
@@ -89,7 +109,10 @@ public class ProjectsController : ControllerBase
             Name = project.Name,
             ProjectManagerId = project.ProjectManagerId,
             ProjectManagerName = project.ProjectManager?.FullName,
+            ClientId = project.ClientId,
+            ClientName = project.Client?.Name,
             IsBillable = project.IsBillable,
+            IsActive = project.IsActive,
             JiraBoardIds = project.JiraBoardIds,
             CreatedAt = project.CreatedAt,
             CreatedBy = project.CreatedBy
@@ -107,7 +130,9 @@ public class ProjectsController : ControllerBase
 
         project.Name = dto.Name;
         project.ProjectManagerId = dto.ProjectManagerId;
+        project.ClientId = dto.ClientId;
         project.IsBillable = dto.IsBillable;
+        project.IsActive = dto.IsActive;
         project.JiraBoardIds = dto.JiraBoardIds;
         project.UpdatedAt = DateTime.UtcNow;
         project.UpdatedBy = username;

@@ -544,6 +544,159 @@ public static class SeedData
         }
     }
 
+    /// <summary>Adds IsActive to Projects, defaulting existing rows to TRUE so nothing already
+    /// synced/created silently vanishes from the timesheet's project dropdown the moment this
+    /// column appears.</summary>
+    public static void EnsureProjectActiveColumnExists(AppDbContext db)
+    {
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"
+                ALTER TABLE ""Projects"" ADD COLUMN IF NOT EXISTS ""IsActive"" BOOLEAN NOT NULL DEFAULT TRUE;
+            ");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Projects]') AND name = 'IsActive')
+                BEGIN
+                    ALTER TABLE [Projects] ADD [IsActive] bit NOT NULL DEFAULT 1;
+                END");
+        }
+    }
+
+    /// <summary>New lookup table for grouping projects by client - same audit-field shape as
+    /// Department (CreatedBy/DateCreated/ModifiedBy/DateModified/IsDeleted/DateDeleted), since a
+    /// Client is the same kind of simple named lookup entity. Must run before
+    /// EnsureProjectClientColumnExists, whose FK references this table.</summary>
+    public static void EnsureClientsTableExists(AppDbContext db)
+    {
+        if (TableExists(db, "Clients"))
+        {
+            return;
+        }
+
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"
+                CREATE TABLE ""Clients"" (
+                    ""Id"" SERIAL PRIMARY KEY,
+                    ""Name"" VARCHAR(200) NOT NULL,
+                    ""CreatedBy"" TEXT NULL,
+                    ""DateCreated"" TIMESTAMP NOT NULL DEFAULT NOW(),
+                    ""ModifiedBy"" TEXT NULL,
+                    ""DateModified"" TIMESTAMP NULL,
+                    ""IsDeleted"" BOOLEAN NOT NULL DEFAULT FALSE,
+                    ""DateDeleted"" TIMESTAMP NULL
+                );
+                CREATE UNIQUE INDEX ""IX_Clients_Name"" ON ""Clients"" (""Name"");
+            ");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"
+                CREATE TABLE [Clients] (
+                    [Id] int IDENTITY(1,1) NOT NULL,
+                    [Name] nvarchar(200) NOT NULL,
+                    [CreatedBy] nvarchar(max) NULL,
+                    [DateCreated] datetime2 NOT NULL DEFAULT GETUTCDATE(),
+                    [ModifiedBy] nvarchar(max) NULL,
+                    [DateModified] datetime2 NULL,
+                    [IsDeleted] bit NOT NULL DEFAULT 0,
+                    [DateDeleted] datetime2 NULL,
+                    CONSTRAINT [PK_Clients] PRIMARY KEY CLUSTERED ([Id] ASC)
+                );
+                CREATE UNIQUE INDEX [IX_Clients_Name] ON [Clients] ([Name]);
+            ");
+        }
+    }
+
+    /// <summary>Adds Projects.ClientId - run this AFTER EnsureClientsTableExists, since the FK
+    /// constraint references the Clients table.</summary>
+    public static void EnsureProjectClientColumnExists(AppDbContext db)
+    {
+        if (ColumnExists(db, "Projects", "ClientId")) return;
+
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"
+                ALTER TABLE ""Projects"" ADD COLUMN IF NOT EXISTS ""ClientId"" INT NULL
+                    REFERENCES ""Clients"" (""Id"") ON DELETE SET NULL;
+                CREATE INDEX IF NOT EXISTS ""IX_Projects_ClientId"" ON ""Projects"" (""ClientId"");
+            ");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[Projects]') AND name = 'ClientId')
+                BEGIN
+                    ALTER TABLE [Projects] ADD [ClientId] int NULL;
+                    ALTER TABLE [Projects] ADD CONSTRAINT [FK_Projects_Clients_ClientId] FOREIGN KEY ([ClientId])
+                        REFERENCES [Clients] ([Id]) ON DELETE SET NULL;
+                    CREATE INDEX [IX_Projects_ClientId] ON [Projects] ([ClientId]);
+                END");
+        }
+    }
+
+    /// <summary>New join table: one employee staffed on one project, with its own billable flag -
+    /// Project.IsBillable is kept as the default a new resource starts from, this table is the
+    /// actual per-person source of truth once someone's been added.</summary>
+    public static void EnsureProjectResourcesTableExists(AppDbContext db)
+    {
+        if (TableExists(db, "ProjectResources"))
+        {
+            return;
+        }
+
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"
+                CREATE TABLE ""ProjectResources"" (
+                    ""Id"" SERIAL PRIMARY KEY,
+                    ""ProjectId"" INT NOT NULL,
+                    ""EmployeeId"" INT NOT NULL,
+                    ""IsBillable"" BOOLEAN NOT NULL DEFAULT TRUE,
+                    ""CreatedBy"" TEXT NULL,
+                    ""DateCreated"" TIMESTAMP NOT NULL DEFAULT NOW(),
+                    ""ModifiedBy"" TEXT NULL,
+                    ""DateModified"" TIMESTAMP NULL,
+                    ""IsDeleted"" BOOLEAN NOT NULL DEFAULT FALSE,
+                    ""DateDeleted"" TIMESTAMP NULL,
+                    CONSTRAINT ""FK_ProjectResources_Projects_ProjectId"" FOREIGN KEY (""ProjectId"")
+                        REFERENCES ""Projects"" (""Id"") ON DELETE CASCADE,
+                    CONSTRAINT ""FK_ProjectResources_AspNetUsers_EmployeeId"" FOREIGN KEY (""EmployeeId"")
+                        REFERENCES ""AspNetUsers"" (""Id"") ON DELETE RESTRICT
+                );
+                CREATE INDEX ""IX_ProjectResources_ProjectId"" ON ""ProjectResources"" (""ProjectId"");
+                CREATE INDEX ""IX_ProjectResources_EmployeeId"" ON ""ProjectResources"" (""EmployeeId"");
+            ");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"
+                CREATE TABLE [ProjectResources] (
+                    [Id] int IDENTITY(1,1) NOT NULL,
+                    [ProjectId] int NOT NULL,
+                    [EmployeeId] int NOT NULL,
+                    [IsBillable] bit NOT NULL DEFAULT 1,
+                    [CreatedBy] nvarchar(max) NULL,
+                    [DateCreated] datetime2 NOT NULL DEFAULT GETUTCDATE(),
+                    [ModifiedBy] nvarchar(max) NULL,
+                    [DateModified] datetime2 NULL,
+                    [IsDeleted] bit NOT NULL DEFAULT 0,
+                    [DateDeleted] datetime2 NULL,
+                    CONSTRAINT [PK_ProjectResources] PRIMARY KEY CLUSTERED ([Id] ASC),
+                    CONSTRAINT [FK_ProjectResources_Projects_ProjectId] FOREIGN KEY ([ProjectId])
+                        REFERENCES [Projects] ([Id]) ON DELETE CASCADE,
+                    CONSTRAINT [FK_ProjectResources_AspNetUsers_EmployeeId] FOREIGN KEY ([EmployeeId])
+                        REFERENCES [AspNetUsers] ([Id]) ON DELETE NO ACTION
+                );
+                CREATE INDEX [IX_ProjectResources_ProjectId] ON [ProjectResources] ([ProjectId]);
+                CREATE INDEX [IX_ProjectResources_EmployeeId] ON [ProjectResources] ([EmployeeId]);
+            ");
+        }
+    }
+
     private static bool TableExists(AppDbContext db, string tableName)
     {
         var conn = db.Database.GetDbConnection();

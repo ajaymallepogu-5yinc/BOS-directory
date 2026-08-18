@@ -6,6 +6,7 @@ import DepartmentTreePage from "./pages/DepartmentTreePage";
 import RoleMappingPage from "./pages/RoleMappingPage";
 import LoginPage from "./pages/LoginPage";
 import ProjectsPage from "./pages/ProjectsPage";
+import ClientsPage from "./pages/ClientsPage";
 import TimesheetPage from "./pages/TimesheetPage";
 import TeamApprovalsPage from "./pages/TeamApprovalsPage";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -82,6 +83,7 @@ export default function App() {
                 <Route path="/team-approvals" element={<TeamApprovalsPage />} />
               </Route>
               <Route element={<AdminRoute />}>
+                <Route path="/clients" element={<ClientsPage />} />
                 <Route path="/admin" element={<AdminPage />} />
               </Route>
             </Route>

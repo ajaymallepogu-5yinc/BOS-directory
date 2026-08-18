@@ -147,6 +147,8 @@ builder.Services.AddScoped<IEmployeeRepository, EfEmployeeRepository>();
 builder.Services.AddScoped<IDepartmentRepository, EfDepartmentRepository>();
 
 builder.Services.AddScoped<IOrgTreeBuilder, OrgTreeBuilder>();
+builder.Services.AddScoped<OrgChart.Services.ClientService>();
+builder.Services.AddScoped<OrgChart.Services.ProjectResourceService>();
 
 var app = builder.Build();
 
@@ -167,6 +169,10 @@ using (var scope = app.Services.CreateScope())
     SeedData.EnsureDepartmentAuditColumnsExist(db);
     SeedData.EnsureOrgReportingAuditColumnsExist(db);
     SeedData.EnsureProjectSoftDeleteColumnsExist(db);
+    SeedData.EnsureProjectActiveColumnExists(db);
+    SeedData.EnsureClientsTableExists(db);
+    SeedData.EnsureProjectClientColumnExists(db);
+    SeedData.EnsureProjectResourcesTableExists(db);
     SeedData.EnsureIdentitySequencesAreSynced(db);
     SeedData.SeedDefaultSettings(db);
 

@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\OrgChart.Domain\OrgChart.Domain.csproj" />
+    <ProjectReference Include="..\OrgChart.Repositories\OrgChart.Repositories.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
