@@ -40,8 +40,7 @@ function normalizeEmployeeValues(values: EmployeeFormValues): EmployeeFormValues
   return {
     ...values,
     avatarUrl: values.avatarUrl?.trim() || undefined,
-    hrmsEmail: values.hrmsEmail?.trim() || undefined,
-    cardColor: values.cardColor?.trim() || undefined
+    hrmsEmail: values.hrmsEmail?.trim() || undefined
   };
 }
 

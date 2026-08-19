@@ -46,6 +46,11 @@ export default function AdminPage() {
     setTimeout(() => setSuccessMessage(null), 4000);
   }
 
+  function showError(message: string) {
+    setErrorMessage(message);
+    setTimeout(() => setErrorMessage(null), 4000);
+  }
+
   // Reusable confirmation state
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
@@ -216,7 +221,7 @@ export default function AdminPage() {
     } catch (err: any) {
       console.error("Error reloading employees list:", err);
       setEmployees([]);
-      setErrorMessage("Could not load employee records. Please ensure your local database is online.");
+      showError("Could not load employee records. Please ensure your local database is online.");
     }
   }
 
@@ -230,8 +235,24 @@ export default function AdminPage() {
 
   async function handleSubmit(values: EmployeeFormValues) {
     setErrorMessage(null);
+    if (!values.fullName.trim()) {
+      showError("Full name is required.");
+      throw new Error("Full name is required.");
+    }
+    if (!values.title.trim()) {
+      showError("Title is required.");
+      throw new Error("Title is required.");
+    }
+    if (!values.company.trim()) {
+      showError("Company is required.");
+      throw new Error("Company is required.");
+    }
+    if (!values.appEmail.trim()) {
+      showError("App Email is required.");
+      throw new Error("App Email is required.");
+    }
     if (values.departmentId == null) {
-      setErrorMessage("Please select a department before saving.");
+      showError("Please select a department before saving.");
       throw new Error("Department is required.");
     }
     try {
@@ -243,7 +264,7 @@ export default function AdminPage() {
       await reload();
       showSuccess(editing ? `Nice! ${values.fullName}'s details are all set.` : `Welcome aboard, ${values.fullName}!`);
     } catch (err: any) {
-      setErrorMessage(extractErrorMessage(err) || "Something went wrong saving that employee.");
+      showError(extractErrorMessage(err) || "Something went wrong saving that employee.");
       throw err;
     }
   }
@@ -266,7 +287,7 @@ export default function AdminPage() {
           await reload();
           showSuccess(makingAdmin ? `${employee.fullName} just leveled up to Admin!` : `${employee.fullName}'s Admin access removed.`);
         } catch (err: any) {
-          setErrorMessage(err.response?.data?.message || "Could not update that employee's Admin role.");
+          showError(err.response?.data?.message || "Could not update that employee's Admin role.");
         }
       }
     });
@@ -290,7 +311,7 @@ export default function AdminPage() {
             await reload();
             showSuccess(`Done! ${employee.fullName} has been removed.`);
           } catch (err: any) {
-            setErrorMessage("Could not delete employee record.");
+            showError("Could not delete employee record.");
           }
         }
       });
@@ -325,7 +346,7 @@ export default function AdminPage() {
         showSuccess(`All set! ${remainingLabel} reassigned to ${newManagerName}.`);
       }
     } catch (err: any) {
-      setErrorMessage(err.response?.data?.message || "Could not delete employee record.");
+      showError(err.response?.data?.message || "Could not delete employee record.");
     }
   }
 

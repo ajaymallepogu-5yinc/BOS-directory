@@ -616,7 +616,7 @@ export default function ProjectsPage() {
               </button>
             </div>
 
-            <form onSubmit={handleFormSubmit} className="flex flex-col gap-4">
+            <form onSubmit={handleFormSubmit} noValidate className="flex flex-col gap-4">
               {/* Project Name */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-ink-500 uppercase tracking-wide">Project Name</label>

@@ -68,6 +68,7 @@ export default function EmployeeFormDrawer({
     <div className="fixed inset-0 z-50 flex justify-end bg-ink-900/30">
       <form
         onSubmit={handleSubmit}
+        noValidate
         className="flex h-full w-full max-w-md flex-col bg-white shadow-xl"
       >
         <div className="border-b border-ink-200 px-6 py-4">
