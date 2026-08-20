@@ -851,6 +851,15 @@ export default function TimesheetPage() {
         }
 
         for (const d of filledDays) {
+          // Comments are only enforced on an explicit Save/Submit, never during auto-save -
+          // auto-save must persist whatever's typed regardless, so hours are never silently lost
+          // if the user navigates away before adding a comment. Nothing is skipped here; the
+          // entry just saves without one until the user explicitly tries to Save/Submit.
+          if (!options?.skipIncomplete && !(row.comments[d] || "").trim()) {
+            showNotification("error", `Add a comment for ${formatDate(d)} before saving.`);
+            return { ok: false, changeCount: 0 };
+          }
+
           const hrs = parseFloat(row.hours[d]);
           dayTotals[d] = (dayTotals[d] || 0) + hrs;
           const values: TimesheetEntryFormValues = {
@@ -1592,8 +1601,8 @@ export default function TimesheetPage() {
                         <button
                           type="button"
                           onClick={() => addRow(group.id)}
-                          disabled={group.projectId == null}
-                          title={group.projectId == null ? "Pick a project first" : undefined}
+                          disabled={weekLocked || group.projectId == null}
+                          title={weekLocked ? "This week can't be edited right now" : group.projectId == null ? "Pick a project first" : undefined}
                           className="inline-flex items-center gap-1 text-[10px] font-bold text-brand hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
                         >
                           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1621,7 +1630,9 @@ export default function TimesheetPage() {
                       <button
                         type="button"
                         onClick={addGroup}
-                        className="inline-flex items-center gap-1 text-[10px] font-bold text-brand hover:underline"
+                        disabled={weekLocked}
+                        title={weekLocked ? "This week can't be edited right now" : undefined}
+                        className="inline-flex items-center gap-1 text-[10px] font-bold text-brand hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
                       >
                         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />

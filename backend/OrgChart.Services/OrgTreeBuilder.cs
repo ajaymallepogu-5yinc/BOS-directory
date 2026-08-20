@@ -93,11 +93,9 @@ public class OrgTreeBuilder : IOrgTreeBuilder
             Id = employee.Id,
             FullName = employee.FullName,
             Title = employee.Title,
-            Company = employee.Company,
             AvatarUrl = employee.AvatarUrl,
             Department = employee.Department?.Name ?? "",
             DepartmentColor = employee.Department?.ColorHex ?? "#64748B",
-            CardColor = employee.CardColor,
             Children = children,
             TotalReportCount = children.Sum(c => c.TotalReportCount + 1)
         };

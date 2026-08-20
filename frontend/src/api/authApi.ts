@@ -4,7 +4,6 @@ export interface UserSession {
   id: number;
   fullName: string;
   title: string;
-  company: string;
   avatarUrl?: string | null;
   appEmail: string;
   department: string;

@@ -38,3 +38,10 @@ public class CreateProjectDto
 public class UpdateProjectDto : CreateProjectDto
 {
 }
+
+public class SyncJiraResultDto
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public int SyncedCount { get; set; }
+}

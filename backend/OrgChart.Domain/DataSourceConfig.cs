@@ -28,9 +28,6 @@ public class DataSourceConfig
     public string TitleField { get; set; } = "title";
 
     [Required, MaxLength(100)]
-    public string CompanyField { get; set; } = "company";
-
-    [Required, MaxLength(100)]
     public string AvatarUrlField { get; set; } = "avatarUrl";
 
     [Required, MaxLength(100)]

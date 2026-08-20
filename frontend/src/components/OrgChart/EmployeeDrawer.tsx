@@ -145,10 +145,6 @@ export const EmployeeDrawer: React.FC<EmployeeDrawerProps> = ({
             <h5 className="text-[10px] font-bold tracking-wider text-ink-400 uppercase">Information</h5>
             <div className="grid grid-cols-2 gap-x-4 gap-y-3">
               <div>
-                <p className="text-[10px] font-bold text-ink-400">Company</p>
-                <p className="text-xs font-semibold text-ink-800 mt-0.5 truncate">{emp.company || "5yinc"}</p>
-              </div>
-              <div>
                 <p className="text-[10px] font-bold text-ink-400">Department</p>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span

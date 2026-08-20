@@ -103,12 +103,6 @@ public class HrPortalEmployeeRepository : IEmployeeRepository
                 ? titleEl.Value.GetString() ?? "" 
                 : "";
 
-            // 4. Parse Company (Optional)
-            var companyEl = GetElementByPath(item, config.CompanyField);
-            string company = companyEl.HasValue && companyEl.Value.ValueKind == JsonValueKind.String 
-                ? companyEl.Value.GetString() ?? "" 
-                : "";
-
             // 5. Parse Avatar Url (Optional)
             var avatarEl = GetElementByPath(item, config.AvatarUrlField);
             string? avatarUrl = avatarEl.HasValue && avatarEl.Value.ValueKind == JsonValueKind.String 
@@ -181,7 +175,6 @@ public class HrPortalEmployeeRepository : IEmployeeRepository
                 Id = id,
                 FullName = fullName,
                 Title = title,
-                Company = company,
                 AvatarUrl = avatarUrl,
                 ManagerId = managerId,
                 DepartmentId = departmentId,

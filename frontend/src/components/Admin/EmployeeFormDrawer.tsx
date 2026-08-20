@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import type { Department, Employee, EmployeeFormValues, ManagerOption } from "../../api/types";
+import { JOB_ROLES } from "../../utils/jobRoles";
 
 interface Props {
   open: boolean;
@@ -13,7 +14,7 @@ interface Props {
 const emptyForm: EmployeeFormValues = {
   fullName: "",
   title: "",
-  company: "",
+  jobRole: null,
   avatarUrl: "",
   managerId: null,
   functionalManagerId: null,
@@ -38,7 +39,7 @@ export default function EmployeeFormDrawer({
       setValues({
         fullName: initial.fullName,
         title: initial.title,
-        company: initial.company,
+        jobRole: initial.jobRole ?? null,
         avatarUrl: initial.avatarUrl ?? "",
         managerId: initial.managerId ?? null,
         functionalManagerId: initial.functionalManagerId ?? null,
@@ -96,12 +97,12 @@ export default function EmployeeFormDrawer({
             />
           </Field>
 
-          <Field label="Company">
-            <input
-              required
-              value={values.company}
-              onChange={(e) => setValues((v) => ({ ...v, company: e.target.value }))}
-              className="input"
+          <Field label="Job Role">
+            <CustomSelect
+              value={values.jobRole}
+              onChange={(val) => setValues((v) => ({ ...v, jobRole: val !== null ? String(val) : null }))}
+              options={JOB_ROLES.map((r) => ({ value: r, label: r }))}
+              emptyLabel="Select a job role"
             />
           </Field>
 

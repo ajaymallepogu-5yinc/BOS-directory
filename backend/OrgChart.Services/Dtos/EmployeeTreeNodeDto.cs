@@ -9,11 +9,9 @@ public class EmployeeTreeNodeDto
     public int Id { get; set; }
     public string FullName { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
-    public string Company { get; set; } = string.Empty;
     public string? AvatarUrl { get; set; }
     public string Department { get; set; } = string.Empty;
     public string DepartmentColor { get; set; } = string.Empty;
-    public string? CardColor { get; set; }
 
     /// <summary>Total reports under this person (direct + indirect), shown as the count bubble.</summary>
     public int TotalReportCount { get; set; }

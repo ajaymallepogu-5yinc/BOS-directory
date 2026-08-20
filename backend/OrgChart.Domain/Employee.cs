@@ -13,7 +13,9 @@ public class Employee : IdentityUser<int>
 
     public string Title { get; set; } = string.Empty;
 
-    public string Company { get; set; } = string.Empty;
+    /// <summary>Broad job-role category (e.g. "Dev", "QA", "Architect") - a fixed set defined in
+    /// the frontend, distinct from Title which stays a free-text specific job title.</summary>
+    public string? JobRole { get; set; }
 
     /// <summary>Optional photo URL. When empty, the UI renders initials instead.</summary>
     public string? AvatarUrl { get; set; }
@@ -21,9 +23,6 @@ public class Employee : IdentityUser<int>
     // Authentication and Role fields
     public string APPEmail { get; set; } = string.Empty;
     public string? HRMSEmail { get; set; }
-
-    /// <summary>Optional custom color to override department card color.</summary>
-    public string? CardColor { get; set; }
 
     /// <summary>Jira accountId, resolved lazily by matching APPEmail against Jira's user search. Cached here to avoid re-resolving on every request.</summary>
     public string? JiraAccountId { get; set; }

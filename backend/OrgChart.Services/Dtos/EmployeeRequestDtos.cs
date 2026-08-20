@@ -10,8 +10,9 @@ public class CreateEmployeeDto
     [Required, MaxLength(150)]
     public string Title { get; set; } = string.Empty;
 
-    [Required, MaxLength(150)]
-    public string Company { get; set; } = string.Empty;
+    /// <summary>Broad job-role category (e.g. "Dev", "QA", "Architect") - optional, distinct
+    /// from the required free-text Title above.</summary>
+    public string? JobRole { get; set; }
 
     public string? AvatarUrl { get; set; }
 
@@ -30,8 +31,6 @@ public class CreateEmployeeDto
 
     [Required]
     public int DepartmentId { get; set; }
-
-    public string? CardColor { get; set; }
 }
 
 public class UpdateEmployeeDto : CreateEmployeeDto

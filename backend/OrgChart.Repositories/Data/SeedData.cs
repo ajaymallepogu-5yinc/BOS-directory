@@ -84,7 +84,6 @@ public static class SeedData
                 HRMSEmail = "sashank.hrms@5yinc.com",
                 FullName = "Sashank",
                 Title = "Founder & CEO",
-                Company = "5yinc",
                 EmailConfirmed = true,
                 SecurityStamp = System.Guid.NewGuid().ToString()
             };
@@ -112,7 +111,6 @@ public static class SeedData
                 APPEmail = "ajay.mallepogu@5yinc.com",
                 FullName = "Ajay Mallepogu",
                 Title = "VP of Engineering",
-                Company = "5yinc",
                 EmailConfirmed = true,
                 SecurityStamp = System.Guid.NewGuid().ToString()
             };
@@ -165,7 +163,6 @@ public static class SeedData
                 APPEmail = "john@5yinc.com",
                 FullName = "John Doe",
                 Title = "Senior Software Engineer",
-                Company = "5yinc",
                 EmailConfirmed = true,
                 SecurityStamp = System.Guid.NewGuid().ToString()
             };
@@ -195,7 +192,6 @@ public static class SeedData
                 APPEmail = "jane@5yinc.com",
                 FullName = "Jane Smith",
                 Title = "HR Specialist",
-                Company = "5yinc",
                 EmailConfirmed = true,
                 SecurityStamp = System.Guid.NewGuid().ToString()
             };
@@ -226,7 +222,6 @@ public static class SeedData
                 APPEmail = "ajaymallepogu871@gmail.com",
                 FullName = "Suman",
                 Title = "Software Engineer",
-                Company = "5yinc",
                 EmailConfirmed = true,
                 SecurityStamp = System.Guid.NewGuid().ToString()
             };
@@ -298,21 +293,68 @@ public static class SeedData
         }
     }
 
-    public static void EnsureCardColorColumnExists(AppDbContext db)
+    /// <summary>Adds AspNetUsers.JobRole - a broad job-role category, distinct from the existing
+    /// free-text Title column. The fixed list of allowed values lives in the frontend only, same
+    /// as the Timesheet's activity codes; this column itself is just a plain nullable string.</summary>
+    public static void EnsureJobRoleColumnExists(AppDbContext db)
     {
         if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
         {
-            var sql = @"ALTER TABLE ""AspNetUsers"" ADD COLUMN IF NOT EXISTS ""CardColor"" VARCHAR(50) NULL;";
-            db.Database.ExecuteSqlRaw(sql);
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""AspNetUsers"" ADD COLUMN IF NOT EXISTS ""JobRole"" VARCHAR(50) NULL;");
         }
         else
         {
-            var sql = @"
-                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[AspNetUsers]') AND name = 'CardColor')
+            db.Database.ExecuteSqlRaw(@"
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[AspNetUsers]') AND name = 'JobRole')
                 BEGIN
-                    ALTER TABLE [AspNetUsers] ADD [CardColor] nvarchar(50) NULL;
-                END";
-            db.Database.ExecuteSqlRaw(sql);
+                    ALTER TABLE [AspNetUsers] ADD [JobRole] nvarchar(50) NULL;
+                END");
+        }
+    }
+
+    /// <summary>Drops the now-removed AspNetUsers.Company and DataSourceConfigs.CompanyField
+    /// columns - Company was always the same value for every employee in this single-company
+    /// app, and its only editable spot (the Add/Edit employee form) had no way to change it
+    /// without a direct database edit, so the field is being removed entirely rather than kept
+    /// half-usable.</summary>
+    public static void EnsureCompanyColumnsDropped(AppDbContext db)
+    {
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""AspNetUsers"" DROP COLUMN IF EXISTS ""Company"";");
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DataSourceConfigs"" DROP COLUMN IF EXISTS ""CompanyField"";");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"
+                IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[AspNetUsers]') AND name = 'Company')
+                BEGIN
+                    ALTER TABLE [AspNetUsers] DROP COLUMN [Company];
+                END");
+            db.Database.ExecuteSqlRaw(@"
+                IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[DataSourceConfigs]') AND name = 'CompanyField')
+                BEGIN
+                    ALTER TABLE [DataSourceConfigs] DROP COLUMN [CompanyField];
+                END");
+        }
+    }
+
+    /// <summary>Drops the now-removed AspNetUsers.CardColor column - the "override department
+    /// card color per employee" feature never got an admin UI to set or display it, so it's
+    /// being removed rather than left half-built.</summary>
+    public static void EnsureCardColorColumnDropped(AppDbContext db)
+    {
+        if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""AspNetUsers"" DROP COLUMN IF EXISTS ""CardColor"";");
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"
+                IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[AspNetUsers]') AND name = 'CardColor')
+                BEGIN
+                    ALTER TABLE [AspNetUsers] DROP COLUMN [CardColor];
+                END");
         }
     }
 
@@ -1139,7 +1181,6 @@ public static class SeedData
                 IdField = "id",
                 FullNameField = "fullName",
                 TitleField = "title",
-                CompanyField = "company",
                 AvatarUrlField = "avatarUrl",
                 ManagerIdField = "managerId",
                 DepartmentIdField = "departmentId",

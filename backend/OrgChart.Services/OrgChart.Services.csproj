@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="Google.Apis.Auth" Version="1.68.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\OrgChart.Domain\OrgChart.Domain.csproj" />
     <ProjectReference Include="..\OrgChart.Repositories\OrgChart.Repositories.csproj" />
   </ItemGroup>

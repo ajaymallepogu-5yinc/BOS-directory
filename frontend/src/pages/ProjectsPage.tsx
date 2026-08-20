@@ -222,7 +222,7 @@ export default function ProjectsPage() {
         showNotification("error", result.message);
       }
     } catch (err: any) {
-      showNotification("error", err.response?.data?.message || "Failed to sync Jira boards.");
+      showNotification("error", err.response?.data?.message || "Failed to sync Jira.");
     } finally {
       setIsSyncing(false);
     }
@@ -356,8 +356,8 @@ export default function ProjectsPage() {
       {/* Header section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-ink-150 pb-6 mb-6">
         <div>
-          <h1 className="font-display text-2xl font-black text-ink-900 leading-tight">Project Boards</h1>
-          <p className="text-xs text-ink-500 mt-1">Manage project details, billing statuses, and link boards directly to Jira.</p>
+          <h1 className="font-display text-2xl font-black text-ink-900 leading-tight">Projects</h1>
+          <p className="text-xs text-ink-500 mt-1">Manage project details, billing statuses, and sync directly with Jira.</p>
         </div>
 
         {isAdmin && (
@@ -370,7 +370,7 @@ export default function ProjectsPage() {
               <svg className={`h-4 w-4 shrink-0 text-sky-500 ${isSyncing ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="currentColor">
                 <path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V1.001A1.001 1.001 0 0 0 23.013 0z" />
               </svg>
-              {isSyncing ? "Syncing Jira..." : "Sync Jira Boards"}
+              {isSyncing ? "Syncing Jira..." : "Jira Sync"}
             </button>
 
             <button
@@ -466,7 +466,7 @@ export default function ProjectsPage() {
           <p className="text-xs text-ink-500 mt-1 max-w-sm">
             {searchTerm 
               ? "No results match your search term. Try checking for typos or searching something else." 
-              : "Start by manually creating a project or syncing your existing board configs from Jira."}
+              : "Start by manually creating a project or syncing your existing projects from Jira."}
           </p>
         </div>
       ) : (

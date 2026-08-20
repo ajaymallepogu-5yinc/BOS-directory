@@ -2,7 +2,6 @@ export interface OrgTreeNode {
   id: number;
   fullName: string;
   title: string;
-  company: string;
   avatarUrl?: string | null;
   department: string;
   departmentColor: string;
@@ -21,7 +20,7 @@ export interface Employee {
   id: number;
   fullName: string;
   title: string;
-  company: string;
+  jobRole?: string | null;
   avatarUrl?: string | null;
   managerId?: number | null;
   managerName?: string | null;
@@ -43,7 +42,7 @@ export interface ManagerOption {
 export interface EmployeeFormValues {
   fullName: string;
   title: string;
-  company: string;
+  jobRole: string | null;
   avatarUrl?: string;
   managerId: number | null;
   functionalManagerId: number | null;
@@ -61,7 +60,6 @@ export interface Settings {
   idField: string;
   fullNameField: string;
   titleField: string;
-  companyField: string;
   avatarUrlField: string;
   managerIdField: string;
   departmentIdField: string;
@@ -81,7 +79,6 @@ export interface UpdateSettingsRequest {
   idField: string;
   fullNameField: string;
   titleField: string;
-  companyField: string;
   avatarUrlField: string;
   managerIdField: string;
   departmentIdField: string;
@@ -98,7 +95,6 @@ export interface TestConnectionRequest {
   idField: string;
   fullNameField: string;
   titleField: string;
-  companyField: string;
   avatarUrlField: string;
   managerIdField: string;
   departmentIdField: string;
@@ -112,7 +108,6 @@ export interface EmployeePreview {
   id: number;
   fullName: string;
   title: string;
-  company: string;
   managerId?: number | null;
   departmentId: number;
   departmentName: string;
@@ -132,7 +127,6 @@ export interface BulkImportEmployee {
   id: string;
   fullName: string;
   title: string;
-  company: string;
   avatarUrl?: string | null;
   managerId?: string | null;
   departmentName: string;

@@ -77,17 +77,6 @@ public class EfEmployeeRepository : IEmployeeRepository
 
     public async Task<Employee> AddAsync(Employee employee)
     {
-        // Generate security stamp and credentials
-        if (string.IsNullOrWhiteSpace(employee.UserName))
-        {
-            var emailName = employee.FullName.Replace(" ", "").Replace("'", "").ToLowerInvariant();
-            var email = $"{emailName}@5yinc.com";
-            employee.APPEmail = email;
-            employee.Email = email;
-            employee.NormalizedEmail = email.ToUpperInvariant();
-            employee.UserName = email;
-            employee.NormalizedUserName = email.ToUpperInvariant();
-        }
         employee.SecurityStamp = Guid.NewGuid().ToString();
         employee.EmailConfirmed = true;
 
@@ -148,10 +137,9 @@ public class EfEmployeeRepository : IEmployeeRepository
 
         existing.FullName = updated.FullName;
         existing.Title = updated.Title;
-        existing.Company = updated.Company;
+        existing.JobRole = updated.JobRole;
         existing.AvatarUrl = updated.AvatarUrl;
         existing.HRMSEmail = updated.HRMSEmail;
-        existing.CardColor = updated.CardColor;
         existing.ModifiedBy = updated.ModifiedBy;
         existing.DateModified = DateTime.UtcNow;
 

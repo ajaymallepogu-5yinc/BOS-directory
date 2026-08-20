@@ -145,10 +145,21 @@ static string ConvertPostgresUriToConnectionString(string uriString)
 // Repositories
 builder.Services.AddScoped<IEmployeeRepository, EfEmployeeRepository>();
 builder.Services.AddScoped<IDepartmentRepository, EfDepartmentRepository>();
+builder.Services.AddScoped<EfClientRepository>();
+builder.Services.AddScoped<EfProjectRepository>();
+builder.Services.AddScoped<EfProjectResourceRepository>();
+builder.Services.AddScoped<EfDataSourceConfigRepository>();
+builder.Services.AddScoped<EfTimesheetRepository>();
 
 builder.Services.AddScoped<IOrgTreeBuilder, OrgTreeBuilder>();
 builder.Services.AddScoped<OrgChart.Services.ClientService>();
 builder.Services.AddScoped<OrgChart.Services.ProjectResourceService>();
+builder.Services.AddScoped<OrgChart.Services.RoleService>();
+builder.Services.AddScoped<OrgChart.Services.SettingsService>();
+builder.Services.AddScoped<OrgChart.Services.EmployeeService>();
+builder.Services.AddScoped<OrgChart.Services.ProjectService>();
+builder.Services.AddScoped<OrgChart.Services.TimesheetService>();
+builder.Services.AddScoped<OrgChart.Services.AuthService>();
 
 var app = builder.Build();
 
@@ -158,7 +169,9 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     
     SeedData.ApplySafeMigrations(db);
-    SeedData.EnsureCardColorColumnExists(db);
+    SeedData.EnsureCardColorColumnDropped(db);
+    SeedData.EnsureJobRoleColumnExists(db);
+    SeedData.EnsureCompanyColumnsDropped(db);
     SeedData.EnsureJiraIdentityColumnsExist(db);
     SeedData.EnsureJiraBoardIdsColumnRenamed(db);
     SeedData.EnsureFunctionalManagerColumnDropped(db);

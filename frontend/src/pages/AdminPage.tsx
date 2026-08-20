@@ -87,7 +87,6 @@ export default function AdminPage() {
   const [idField, setIdField] = useState<string>("id");
   const [fullNameField, setFullNameField] = useState<string>("fullName");
   const [titleField, setTitleField] = useState<string>("title");
-  const [companyField, setCompanyField] = useState<string>("company");
   const [avatarUrlField, setAvatarUrlField] = useState<string>("avatarUrl");
   const [managerIdField, setManagerIdField] = useState<string>("managerId");
   const [departmentIdField, setDepartmentIdField] = useState<string>("departmentId");
@@ -160,7 +159,6 @@ export default function AdminPage() {
       id: getNestedValue(row, idField),
       fullName: getNestedValue(row, fullNameField),
       title: getNestedValue(row, titleField),
-      company: getNestedValue(row, companyField),
       avatarUrl: getNestedValue(row, avatarUrlField),
       managerId: getNestedValue(row, managerIdField),
       departmentName: getNestedValue(row, departmentNameField),
@@ -175,7 +173,6 @@ export default function AdminPage() {
     idField,
     fullNameField,
     titleField,
-    companyField,
     avatarUrlField,
     managerIdField,
     departmentNameField,
@@ -194,7 +191,6 @@ export default function AdminPage() {
       setIdField(s.idField);
       setFullNameField(s.fullNameField);
       setTitleField(s.titleField);
-      setCompanyField(s.companyField);
       setAvatarUrlField(s.avatarUrlField);
       setManagerIdField(s.managerIdField);
       setDepartmentIdField(s.departmentIdField);
@@ -242,10 +238,6 @@ export default function AdminPage() {
     if (!values.title.trim()) {
       showError("Title is required.");
       throw new Error("Title is required.");
-    }
-    if (!values.company.trim()) {
-      showError("Company is required.");
-      throw new Error("Company is required.");
     }
     if (!values.appEmail.trim()) {
       showError("App Email is required.");
@@ -363,7 +355,6 @@ export default function AdminPage() {
         idField,
         fullNameField,
         titleField,
-        companyField,
         avatarUrlField,
         managerIdField,
         departmentIdField,
@@ -407,7 +398,6 @@ export default function AdminPage() {
             idField,
             fullNameField,
             titleField,
-            companyField,
             avatarUrlField,
             managerIdField,
             departmentIdField,
@@ -425,7 +415,6 @@ export default function AdminPage() {
             idField,
             fullNameField,
             titleField,
-            companyField,
             avatarUrlField,
             managerIdField,
             departmentIdField,
@@ -596,7 +585,6 @@ export default function AdminPage() {
         idField,
         fullNameField,
         titleField,
-        companyField,
         avatarUrlField,
         managerIdField,
         departmentIdField,
@@ -793,15 +781,6 @@ export default function AdminPage() {
                   />
                 </div>
 
-                <div>
-                  <label className="text-[10px] font-semibold text-ink-500">Company Name Key</label>
-                  <input
-                    type="text"
-                    value={companyField}
-                    onChange={(e) => setCompanyField(e.target.value)}
-                    className="mt-1 block w-full rounded-lg border border-ink-300 px-3 py-1.5 text-xs text-ink-900 font-mono"
-                  />
-                </div>
                 <div>
                   <label className="text-[10px] font-semibold text-ink-500">Avatar URL Key</label>
                   <input

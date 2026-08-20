@@ -2,11 +2,9 @@ using Google.Apis.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using OrgChart.Domain;
-using OrgChart.Repositories.Data;
+using OrgChart.Services;
 using OrgChart.Services.Dtos;
-using System.ComponentModel.DataAnnotations;
 
 namespace OrgChart.Api.Controllers;
 
@@ -15,21 +13,21 @@ namespace OrgChart.Api.Controllers;
 [AllowAnonymous]
 public class AuthController : ControllerBase
 {
+    private readonly AuthService _authService;
     private readonly UserManager<Employee> _userManager;
     private readonly SignInManager<Employee> _signInManager;
     private readonly IConfiguration _config;
-    private readonly AppDbContext _db;
 
     public AuthController(
+        AuthService authService,
         UserManager<Employee> userManager,
         SignInManager<Employee> signInManager,
-        IConfiguration config,
-        AppDbContext db)
+        IConfiguration config)
     {
+        _authService = authService;
         _userManager = userManager;
         _signInManager = signInManager;
         _config = config;
-        _db = db;
     }
 
     [HttpPost("google-login")]
@@ -38,64 +36,28 @@ public class AuthController : ControllerBase
         if (string.IsNullOrWhiteSpace(dto.IdToken))
         {
             return BadRequest(new { Message = "Google ID Token is required." });
-        }   
+        }
 
         try
         {
-            var clientId = _config["Authentication:Google:ClientId"] 
-                           ?? Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID");
+            var result = await _authService.ValidateGoogleLoginAsync(dto.IdToken);
 
-            if (string.IsNullOrEmpty(clientId))
+            switch (result.Outcome)
             {
-                return StatusCode(500, new { Message = "Google Client ID is not configured on the server." });
-            }
-
-            var settings = new GoogleJsonWebSignature.ValidationSettings
-            {
-                Audience = new[] { clientId }
-            };
-
-            // Crytographically validates the ID token from Google
-            var payload = await GoogleJsonWebSignature.ValidateAsync(dto.IdToken, settings);
-            
-            if (payload == null || string.IsNullOrWhiteSpace(payload.Email))
-            {
-                return BadRequest(new { Message = "Invalid Google ID Token claims." });
-            }
-
-            // Find pre-registered employee by APPEmail (Authentication Email)
-            var employee = await _userManager.Users
-                .Include(e => e.EmpDepartments)
-                .ThenInclude(ed => ed.Department)
-                .FirstOrDefaultAsync(e => e.APPEmail.ToLower() == payload.Email.ToLower());
-
-            if (employee == null)
-            {
-                return StatusCode(403, new { 
-                    Message = $"Access Denied. The email '{payload.Email}' is not pre-registered in the Company Directory. Please contact your administrator." 
-                });
+                case GoogleLoginOutcome.MissingClientId:
+                    return StatusCode(500, new { Message = "Google Client ID is not configured on the server." });
+                case GoogleLoginOutcome.InvalidClaims:
+                    return BadRequest(new { Message = "Invalid Google ID Token claims." });
+                case GoogleLoginOutcome.EmployeeNotFound:
+                    return StatusCode(403, new {
+                        Message = $"Access Denied. The email '{result.GoogleEmail}' is not pre-registered in the Company Directory. Please contact your administrator."
+                    });
             }
 
             // Establish standard ASP.NET Identity session cookie
-            await _signInManager.SignInAsync(employee, isPersistent: true);
+            await _signInManager.SignInAsync(result.Employee!, isPersistent: true);
 
-            // Determine if admin (strictly based on Admin identity role)
-            var roles = await _userManager.GetRolesAsync(employee);
-            var isAdmin = roles.Contains("Admin");
-            var isManager = await _db.OrgReportings.AnyAsync(o => o.ManagerId == employee.Id && (o.ReportingType == "Direct" || o.ReportingType == "Functional"));
-
-            return Ok(new UserSessionDto
-            {
-                Id = employee.Id,
-                FullName = employee.FullName,
-                Title = employee.Title,
-                Company = employee.Company,
-                AvatarUrl = employee.AvatarUrl ?? payload.Picture,
-                AppEmail = employee.APPEmail,
-                Department = employee.EmpDepartments.FirstOrDefault()?.Department?.Name ?? "General",
-                IsAdmin = isAdmin,
-                IsManager = isManager
-            });
+            return Ok(await _authService.BuildSessionAsync(result.Employee!, result.GooglePictureUrl));
         }
         catch (InvalidJwtException ex)
         {
@@ -132,50 +94,12 @@ public class AuthController : ControllerBase
             return Unauthorized();
         }
 
-        var employee = await _userManager.Users
-            .Include(e => e.EmpDepartments)
-            .ThenInclude(ed => ed.Department)
-            .FirstOrDefaultAsync(e => e.Id == id);
-
+        var employee = await _authService.GetEmployeeWithDepartmentAsync(id);
         if (employee == null)
         {
             return Unauthorized();
         }
 
-        var roles = await _userManager.GetRolesAsync(employee);
-        var isAdmin = roles.Contains("Admin");
-        var isManager = await _db.OrgReportings.AnyAsync(o => o.ManagerId == employee.Id && (o.ReportingType == "Direct" || o.ReportingType == "Functional"));
-
-        return Ok(new UserSessionDto
-        {
-            Id = employee.Id,
-            FullName = employee.FullName,
-            Title = employee.Title,
-            Company = employee.Company,
-            AvatarUrl = employee.AvatarUrl,
-            AppEmail = employee.APPEmail,
-            Department = employee.EmpDepartments.FirstOrDefault()?.Department?.Name ?? "General",
-            IsAdmin = isAdmin,
-            IsManager = isManager
-        });
+        return Ok(await _authService.BuildSessionAsync(employee));
     }
-}
-
-public class GoogleLoginDto
-{
-    [Required]
-    public string IdToken { get; set; } = string.Empty;
-}
-
-public class UserSessionDto
-{
-    public int Id { get; set; }
-    public string FullName { get; set; } = string.Empty;
-    public string Title { get; set; } = string.Empty;
-    public string Company { get; set; } = string.Empty;
-    public string? AvatarUrl { get; set; }
-    public string AppEmail { get; set; } = string.Empty;
-    public string Department { get; set; } = string.Empty;
-    public bool IsAdmin { get; set; }
-    public bool IsManager { get; set; }
 }

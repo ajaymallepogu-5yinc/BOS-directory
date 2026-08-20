@@ -6,7 +6,7 @@ public class EmployeeDto
     public int Id { get; set; }
     public string FullName { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
-    public string Company { get; set; } = string.Empty;
+    public string? JobRole { get; set; }
     public string? AvatarUrl { get; set; }
     public int? ManagerId { get; set; }
     public string? ManagerName { get; set; }
@@ -16,7 +16,6 @@ public class EmployeeDto
     public string Department { get; set; } = string.Empty;
     public string AppEmail { get; set; } = string.Empty;
     public string? HrmsEmail { get; set; }
-    public string? CardColor { get; set; }
     public bool IsAdmin { get; set; }
 }
 

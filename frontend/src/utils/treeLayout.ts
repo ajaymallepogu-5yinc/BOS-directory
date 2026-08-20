@@ -75,7 +75,6 @@ export function getLayoutedElements(
           id: node.id,
           fullName: node.fullName,
           title: node.title,
-          company: node.company,
           avatarUrl: node.avatarUrl,
           department: node.department,
           departmentColor: node.departmentColor,
